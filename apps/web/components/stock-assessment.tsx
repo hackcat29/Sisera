@@ -9,6 +9,11 @@ type Assessment = {
   risks: string[];
   confidence: number;
   actionability: "research_only";
+  evidence: {
+    marketSource: string;
+    marketObservedAt: string;
+    articles: Array<{ title: string; publishedAt: string; publisher: string; url: string }>;
+  };
 };
 
 export function StockAssessment({ symbol }: { symbol: string }) {
@@ -78,13 +83,44 @@ export function StockAssessment({ symbol }: { symbol: string }) {
               </ul>
             </div>
           </div>
-          <p className="font-mono text-[10px] text-slate-500">
-            Confidence {(assessment.confidence * 100).toFixed(0)}% · Multi-source evidence synthesis
-          </p>
+          <div className="border-t border-line pt-4">
+            <p className="font-mono text-[10px] text-slate-400">
+              Model confidence {(assessment.confidence * 100).toFixed(0)}% · Research only · Market
+              observation {new Date(assessment.evidence.marketObservedAt).toLocaleString()}
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500">
+              The model received the provider prices and the headlines below. It did not verify
+              article bodies or independently value the company.
+            </p>
+            {assessment.evidence.articles.length ? (
+              <ul className="mt-3 space-y-2">
+                {assessment.evidence.articles.map((article) => (
+                  <li key={article.url}>
+                    <a
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-300 hover:text-white"
+                    >
+                      {article.title}
+                    </a>
+                    <span className="ml-2 text-[10px] text-slate-500">
+                      {article.publisher} · {new Date(article.publishedAt).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-amber-300">
+                No current company headlines were available for this assessment.
+              </p>
+            )}
+          </div>
         </div>
       ) : (
         <p className="mt-4 text-xs leading-5 text-slate-500">
-          Evaluates company announcements, regulatory filings, and market context on demand.
+          Analyzes the current provider mark and any available company headlines. Missing source
+          data is shown with the result.
         </p>
       )}
       {error && (

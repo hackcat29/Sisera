@@ -492,12 +492,20 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     const inserted = await recordSolanaWebhookEvents(config.DATABASE_URL, events);
     return { accepted: events.length, inserted, status: "observation_only" };
   });
-  app.get("/v1/private-markets", { preHandler: requirePermission("market:read") }, async () => ({
-    data: await prestocks.list(),
-  }));
-  app.get("/v1/public-stocks", { preHandler: requirePermission("market:read") }, async () => ({
-    data: await xstocks.list(),
-  }));
+  app.get(
+    "/v1/private-markets",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async () => ({
+      data: await prestocks.list(),
+    }),
+  );
+  app.get(
+    "/v1/public-stocks",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async () => ({
+      data: await xstocks.list(),
+    }),
+  );
   app.get("/v1/agents", { preHandler: requirePermission("agent:read") }, async (request) => {
     if (!config.DATABASE_URL || !request.principal)
       return { templates: agentTemplates, custom: [], persistence: "unavailable" };
@@ -721,6 +729,12 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       if (!asset)
         return reply.code(404).send({ error: "not_found", message: "Unknown PreStocks asset" });
       const news = await stockNews.search(asset.company).catch(() => ({ data: [], providers: [] }));
+      const inputArticles = news.data.slice(0, 5).map((item) => ({
+        title: item.title,
+        publishedAt: item.publishedAt,
+        publisher: item.publisher,
+        url: item.url,
+      }));
       const assessment = await research.assess({
         company: asset.company,
         symbol: asset.instrument.baseAsset,
@@ -728,14 +742,17 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         markPrice: asset.markPrice,
         premiumDiscountPct: asset.premiumDiscountPct,
         fetchedAt: asset.fetchedAt,
-        articles: news.data.slice(0, 5).map((item) => ({
-          title: item.title,
-          publishedAt: item.publishedAt,
-          publisher: item.publisher,
-        })),
+        articles: inputArticles,
       });
       return {
-        data: assessment,
+        data: {
+          ...assessment,
+          evidence: {
+            marketSource: asset.source,
+            marketObservedAt: asset.fetchedAt,
+            articles: inputArticles,
+          },
+        },
         provenance: {
           market: asset.source,
           news: news.providers,
@@ -1038,13 +1055,28 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     { preHandler: requirePermission("market:read") },
     async (request, reply) => {
       const { symbol } = z
-        .object({ symbol: z.string().regex(/^[A-Za-z0-9./_-]{5,80}$/) })
+        .object({ symbol: z.string().regex(/^[A-Za-z0-9./_-]{1,80}$/) })
         .parse(request.query);
       if (!config.PYTH_PRO_API_KEY)
         return reply
           .code(503)
           .send({ error: "provider_unavailable", message: "Pyth Pro is not configured" });
       return { data: await pyth.getLatest(symbol) };
+    },
+  );
+  app.get(
+    "/v1/pyth/references",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const { symbols } = z.object({ symbols: z.string().max(240) }).parse(request.query);
+      if (!config.PYTH_PRO_API_KEY)
+        return reply
+          .code(503)
+          .send({ error: "provider_unavailable", message: "Pyth Pro is not configured" });
+      return { data: await pyth.getLatestEquities(symbols.split(",")) };
     },
   );
   app.get(

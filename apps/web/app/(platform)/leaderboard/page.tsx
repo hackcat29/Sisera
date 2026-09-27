@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth } from "../../../auth";
 import { PageHeader } from "../../../components/page-header";
 import { accountErrorMessage, getLeaderboard } from "../../../lib/api";
@@ -50,9 +51,19 @@ export default async function LeaderboardPage() {
               ))}
             </div>
           ) : (
-            <p className="p-5 text-xs text-slate-400">
-              No opted-in, fully priced paper accounts are available.
-            </p>
+            <div className="p-6 text-xs text-slate-400">
+              <p className="font-semibold text-slate-200">No eligible accounts to rank yet</p>
+              <p className="mt-2 max-w-xl leading-5">
+                A paper account appears only after its holdings can be priced and its owner opts in.
+                Unpriced balances are excluded rather than estimated.
+              </p>
+              <Link
+                href="/settings"
+                className="mt-4 inline-block rounded border border-cyan-400/30 px-3 py-2 text-cyan-300 hover:text-white"
+              >
+                Review leaderboard preference →
+              </Link>
+            </div>
           )}
           {result && (
             <p className="border-t border-line px-4 py-3 text-[10px] text-slate-500">

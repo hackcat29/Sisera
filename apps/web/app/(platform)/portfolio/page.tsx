@@ -80,45 +80,30 @@ export default async function PortfolioPage({
       <PageHeader
         eyebrow="Connected account observations"
         title="Portfolio"
-        description="Live balances from your Solana and HyperEVM wallets and public Hyperliquid perp account. Values are observed from their sources and are not yet reconciled into one P&L."
+        description="Inspect connected-wallet balances, paper holdings, and optional public perp accounts. Sources are shown separately until their records can be reconciled."
         actions={
           <div className="flex items-center gap-2">
             <PortfolioConnect />
           </div>
         }
       />
-      <BridgeUsdc />
-      <div className="mx-4 mt-4 md:mx-6">
-        <PredictionPaperAccount />
-      </div>
-      <section className="m-4 border border-line bg-panel p-5 md:m-6">
-        <p className="eyebrow">HyperEVM · chain 999</p>
-        <h2 className="mt-2 text-base font-semibold text-slate-100">Funding wallet</h2>
-        <p className="mt-2 break-all font-mono text-[10px] text-slate-500">
-          {validAddress ? address : "Connect an EVM wallet or enter its address below."}
-        </p>
-        {hyperEvm ? (
-          <div className="mt-4 flex flex-wrap gap-6 font-mono text-sm text-slate-200">
-            <span>{(Number(hyperEvm.usdcRaw) / 1e6).toLocaleString()} USDC</span>
-            <span>{(Number(hyperEvm.hypeWei) / 1e18).toFixed(5)} HYPE</span>
-            <span className="text-[10px] text-slate-500">
-              {hyperEvm.source} · {new Date(hyperEvm.fetchedAt).toLocaleTimeString()}
-            </span>
+      <div className="grid gap-px border-b border-line bg-line sm:grid-cols-2 xl:grid-cols-3">
+        {summary.map(([label, value]) => (
+          <div key={label} className="bg-panel p-5">
+            <p className="data-label">{label}</p>
+            <p className="data-value mt-4 text-2xl text-slate-100">{value}</p>
+            <p className="mt-2 font-mono text-[8px] uppercase tracking-wider text-slate-700">
+              {value === "—" ? "Connect a source" : "Observed · not reconciled"}
+            </p>
           </div>
-        ) : validAddress ? (
-          <p className="mt-4 text-xs text-amber-300">
-            {hyperEvmResult.error
-              ? accountErrorMessage(hyperEvmResult.error)
-              : "HyperEVM wallet balances are unavailable."}
-          </p>
-        ) : null}
-      </section>
+        ))}
+      </div>
       <section className="m-4 border border-line bg-panel p-5 md:m-6">
         <p className="eyebrow">Solana</p>
         <h2 className="mt-2 text-base font-semibold text-slate-100">Linked wallet observation</h2>
         <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-400">
-          Sign in and link a Solana wallet to view its public balance. This balance has not been
-          reconciled against an account ledger.
+          The connected wallet’s public balances appear here after its address is synced. Holdings
+          are observations and have not been reconciled against an account ledger.
         </p>
         {solanaAddress && !validSolanaAddress && (
           <p className="mt-2 text-xs text-rose-300">Enter a valid base58 Solana address.</p>
@@ -164,6 +149,31 @@ export default async function PortfolioPage({
             )}
           </div>
         )}
+      </section>
+      <div className="mx-4 mt-4 md:mx-6">
+        <PredictionPaperAccount />
+      </div>
+      <section className="m-4 border border-line bg-panel p-5 md:m-6">
+        <p className="eyebrow">HyperEVM · chain 999</p>
+        <h2 className="mt-2 text-base font-semibold text-slate-100">Funding wallet</h2>
+        <p className="mt-2 break-all font-mono text-[10px] text-slate-500">
+          {validAddress ? address : "Connect an EVM wallet or enter its address below."}
+        </p>
+        {hyperEvm ? (
+          <div className="mt-4 flex flex-wrap gap-6 font-mono text-sm text-slate-200">
+            <span>{(Number(hyperEvm.usdcRaw) / 1e6).toLocaleString()} USDC</span>
+            <span>{(Number(hyperEvm.hypeWei) / 1e18).toFixed(5)} HYPE</span>
+            <span className="text-[10px] text-slate-500">
+              {hyperEvm.source} · {new Date(hyperEvm.fetchedAt).toLocaleTimeString()}
+            </span>
+          </div>
+        ) : validAddress ? (
+          <p className="mt-4 text-xs text-amber-300">
+            {hyperEvmResult.error
+              ? accountErrorMessage(hyperEvmResult.error)
+              : "HyperEVM wallet balances are unavailable."}
+          </p>
+        ) : null}
       </section>
       <section className="m-4 border border-line bg-panel p-5 md:m-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -279,17 +289,6 @@ export default async function PortfolioPage({
           </div>
         )}
       </section>
-      <div className="grid gap-px border-b border-line bg-line sm:grid-cols-2 xl:grid-cols-5">
-        {summary.map(([label, value]) => (
-          <div key={label} className="bg-panel p-5">
-            <p className="data-label">{label}</p>
-            <p className="data-value mt-4 text-2xl text-slate-100">{value}</p>
-            <p className="mt-2 font-mono text-[8px] uppercase tracking-wider text-slate-700">
-              {value === "—" ? "Connect a source" : "Observed · not reconciled"}
-            </p>
-          </div>
-        ))}
-      </div>
       <div className="grid gap-4 p-4 xl:grid-cols-[1.45fr_.55fr]">
         <section className="border border-line bg-panel">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -368,6 +367,7 @@ export default async function PortfolioPage({
           </section>
         </div>
       </div>
+      <BridgeUsdc />
     </div>
   );
 }

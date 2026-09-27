@@ -41,6 +41,14 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_match, decimal: string) => {
+      const codepoint = Number(decimal);
+      return codepoint >= 32 && codepoint <= 0x10ffff ? String.fromCodePoint(codepoint) : " ";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => {
+      const codepoint = Number.parseInt(hex, 16);
+      return codepoint >= 32 && codepoint <= 0x10ffff ? String.fromCodePoint(codepoint) : " ";
+    })
     .replace(/\s+/g, " ")
     .trim();
 }

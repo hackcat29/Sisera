@@ -11,12 +11,16 @@ export function MarketOrderTicket({
   ask,
   symbol,
   quoteAsset,
+  quoteObservedAt,
+  quoteStatus,
 }: {
   venue: "binance" | "hyperliquid";
   bid: string | undefined;
   ask: string | undefined;
   symbol: string;
   quoteAsset: string;
+  quoteObservedAt: string | undefined;
+  quoteStatus: "live" | "delayed" | "stale" | "degraded" | "unavailable" | undefined;
 }) {
   const { authenticated } = usePrivy();
   const { wallets } = useWallets();
@@ -33,6 +37,11 @@ export function MarketOrderTicket({
   const [apiSecret, setApiSecret] = useState("");
   const price = side === "buy" ? ask : bid;
   const notional = useMemo(() => Number(quantity) * Number(price), [quantity, price]);
+  const validQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0;
+  const formattedPrice =
+    price && Number.isFinite(Number(price))
+      ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 }).format(Number(price))
+      : "—";
 
   async function submitPaper() {
     const response = await fetch("/api/market-trade", {
@@ -159,7 +168,7 @@ export function MarketOrderTicket({
           <div className="flex justify-between py-3">
             <span className="text-slate-400">Indicative {side === "buy" ? "ask" : "bid"}</span>
             <span>
-              {price ?? "—"} {quoteAsset}
+              {formattedPrice} {quoteAsset}
             </span>
           </div>
           <div className="flex justify-between py-3">
@@ -169,6 +178,12 @@ export function MarketOrderTicket({
             </span>
           </div>
         </div>
+        <p className="text-[11px] leading-5 text-slate-500">
+          {quoteObservedAt
+            ? `${quoteStatus ?? "Observed"} quote captured ${new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC", hourCycle: "h23" }).format(new Date(quoteObservedAt))} UTC.`
+            : "No quote available in this view."}{" "}
+          A fresh venue quote is checked when you submit.
+        </p>
         {mode === "live" && venue === "hyperliquid" && (
           <div className="space-y-2 border border-cyan-400/20 bg-cyan-400/[0.04] p-3 text-xs text-slate-300">
             <p>
@@ -242,7 +257,7 @@ export function MarketOrderTicket({
           onClick={() => void submit()}
           disabled={
             busy ||
-            !quantity ||
+            !validQuantity ||
             (mode === "live" && !liveAvailable) ||
             (mode === "live" &&
               (venue === "binance" ? !authenticated || !apiKey || !apiSecret : !wallet))
@@ -257,8 +272,9 @@ export function MarketOrderTicket({
         </button>
         {message && <output className="block text-xs leading-5 text-slate-300">{message}</output>}
         <p className="text-[11px] leading-5 text-slate-500">
-          Paper fills use a fresh venue bid or ask and a persistent simulated balance. Binance live
-          orders, when enabled, use its signed Spot API.
+          {venue === "binance"
+            ? "Paper fills use a fresh venue bid or ask and a persistent simulated balance. Binance live orders, when enabled, use its signed Spot API."
+            : "Paper fills use a fresh venue bid or ask and a persistent simulated balance. Hyperliquid live orders remain paused until server risk and reconciliation are ready."}
         </p>
       </div>
     </div>

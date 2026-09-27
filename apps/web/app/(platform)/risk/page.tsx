@@ -65,7 +65,7 @@ export default async function RiskPage({
       <PageHeader
         eyebrow="Deterministic Risk Engine"
         title="Risk command center"
-        description="Observed wallet exposure and order entry limits. Full portfolio stress and reconciled drawdown controls require connected venue ledgers."
+        description="Inspect observed exposure and why execution is gated. Reconciled portfolio records are required before full limits and stress controls can operate."
         actions={
           <div className="flex items-center gap-2">
             <StatusBadge tone="warning">Partial order limits</StatusBadge>
@@ -93,6 +93,60 @@ export default async function RiskPage({
           </div>
         ))}
       </div>
+      <section className="m-4 rounded-lg border border-amber-400/20 bg-amber-400/[.05] p-5 text-xs leading-6 text-slate-300 md:m-6">
+        <h2 className="text-sm font-semibold text-white">Before live execution</h2>
+        <p className="mt-2">
+          Verify wallet ownership, establish a reconciled portfolio ledger, validate fresh venue
+          quotes, and enforce order and exposure limits. The current wallet views are public
+          observations and do not satisfy these gates.
+        </p>
+      </section>
+      <section className="mx-4 border border-line bg-panel p-5 md:mx-6">
+        <h2 className="text-sm font-semibold text-white">Solana wallet risk observation</h2>
+        <p className="mt-2 text-xs text-slate-400">
+          Balance and token concentration are observed from chain state. USD exposure requires
+          verified token prices.
+        </p>
+        <form action="/risk" className="mt-3 flex gap-2">
+          <input
+            name="solana"
+            defaultValue={solanaAddress}
+            placeholder="Solana wallet address"
+            className="min-w-0 flex-1 rounded border border-line bg-ink p-2 font-mono text-xs"
+          />
+          <button
+            type="submit"
+            className="rounded border border-cyan-400/30 px-3 text-xs text-cyan-300"
+          >
+            Inspect
+          </button>
+        </form>
+        {solana && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="data-label">Native balance</p>
+              <p className="mt-1 font-mono text-lg text-white">
+                {(Number(solana.solLamports) / 1e9).toFixed(4)} SOL
+              </p>
+            </div>
+            <div>
+              <p className="data-label">Token mints held</p>
+              <p className="mt-1 font-mono text-lg text-white">{solana.holdings.length}</p>
+            </div>
+            <div>
+              <p className="data-label">Source</p>
+              <p className="mt-1 font-mono text-xs text-white">{solana.source}</p>
+            </div>
+          </div>
+        )}
+        {solanaAddress && !solana && (
+          <p className="mt-3 text-xs text-amber-300">
+            {solanaResult.error
+              ? accountErrorMessage(solanaResult.error)
+              : "Enter a valid Solana address to inspect balances."}
+          </p>
+        )}
+      </section>
       <section className="m-4 border border-line bg-panel p-5 md:m-6">
         <p className="eyebrow">Observed exposure · research only</p>
         <h2 className="mt-1 text-base font-semibold text-slate-100">
@@ -148,52 +202,6 @@ export default async function RiskPage({
             {observedResult.error
               ? accountErrorMessage(observedResult.error)
               : "Enter a valid 0x address to inspect exposure."}
-          </p>
-        )}
-      </section>
-      <section className="mx-4 border border-line bg-panel p-5 md:mx-6">
-        <h2 className="text-sm font-semibold text-white">Solana wallet risk observation</h2>
-        <p className="mt-2 text-xs text-slate-400">
-          Balance and token concentration are observed from chain state. USD exposure requires
-          verified token prices.
-        </p>
-        <form action="/risk" className="mt-3 flex gap-2">
-          <input
-            name="solana"
-            defaultValue={solanaAddress}
-            placeholder="Solana wallet address"
-            className="min-w-0 flex-1 rounded border border-line bg-ink p-2 font-mono text-xs"
-          />
-          <button
-            type="submit"
-            className="rounded border border-cyan-400/30 px-3 text-xs text-cyan-300"
-          >
-            Inspect
-          </button>
-        </form>
-        {solana && (
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="data-label">Native balance</p>
-              <p className="mt-1 font-mono text-lg text-white">
-                {(Number(solana.solLamports) / 1e9).toFixed(4)} SOL
-              </p>
-            </div>
-            <div>
-              <p className="data-label">Token mints held</p>
-              <p className="mt-1 font-mono text-lg text-white">{solana.holdings.length}</p>
-            </div>
-            <div>
-              <p className="data-label">Source</p>
-              <p className="mt-1 font-mono text-xs text-white">{solana.source}</p>
-            </div>
-          </div>
-        )}
-        {solanaAddress && !solana && (
-          <p className="mt-3 text-xs text-amber-300">
-            {solanaResult.error
-              ? accountErrorMessage(solanaResult.error)
-              : "Enter a valid Solana address to inspect balances."}
           </p>
         )}
       </section>

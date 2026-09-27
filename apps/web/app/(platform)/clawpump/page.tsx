@@ -10,7 +10,7 @@ export default async function ClawpumpMarkets({
   searchParams,
 }: { searchParams: Promise<{ query?: string }> }) {
   const { query: rawQuery } = await searchParams;
-  const query = (rawQuery ?? "SOL").trim().slice(0, 80);
+  const query = (rawQuery ?? "stock").trim().slice(0, 80);
   const session = await auth();
   const identity = {
     accessToken: session?.accessToken,
@@ -56,7 +56,7 @@ export default async function ClawpumpMarkets({
         </form>
         <div className="flex flex-wrap gap-2 text-xs text-slate-400">
           <span>Try:</span>
-          {["SOL", "AAPL", "stock", "agent"].map((term) => (
+          {["stock", "agent", "AAPL", "TSLA"].map((term) => (
             <a
               key={term}
               href={`/clawpump?query=${term}`}

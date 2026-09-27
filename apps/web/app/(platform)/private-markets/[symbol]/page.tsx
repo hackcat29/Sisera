@@ -48,7 +48,7 @@ export default async function PreStockDetail({ params }: { params: Promise<{ sym
           </div>
         ))}
       </div>
-      <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="rounded-lg border border-line bg-panel p-6">
           <h2 className="text-sm font-semibold text-white">Asset identity</h2>
           <dl className="mt-5 space-y-4 text-xs">
@@ -80,11 +80,13 @@ export default async function PreStockDetail({ params }: { params: Promise<{ sym
             </a>
           )}
         </section>
-        <StockTradeTicket
-          mint={asset.instrument.mint ?? ""}
-          symbol={asset.instrument.baseAsset}
-          price={asset.tokenPrice}
-        />
+        <div className="self-start lg:sticky lg:top-4">
+          <StockTradeTicket
+            mint={asset.instrument.mint ?? ""}
+            symbol={asset.instrument.baseAsset}
+            price={asset.tokenPrice}
+          />
+        </div>
       </div>
       <StockAssessment symbol={asset.instrument.baseAsset} />
       <section className="mt-4 rounded-lg border border-line bg-panel">

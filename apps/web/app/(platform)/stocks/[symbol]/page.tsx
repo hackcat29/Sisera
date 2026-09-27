@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "../../../../auth";
 import { StockTradeTicket } from "../../../../components/stock-trade-ticket";
-import { getPublicStocks, getStockNews } from "../../../../lib/api";
+import { getPublicStocks, getPythReference, getStockNews } from "../../../../lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +17,17 @@ export default async function PublicStockPage({ params }: { params: Promise<{ sy
   const stocks = await getPublicStocks(identity).catch(() => []);
   const stock = stocks.find((item) => item.symbol.toLowerCase() === symbol.toLowerCase());
   if (!stock) notFound();
-  const news = await getStockNews(stock.symbol, identity).catch(() => null);
+  const [news, reference] = await Promise.all([
+    getStockNews(stock.symbol, identity).catch(() => null),
+    getPythReference(stock.underlyingSymbol, identity).catch(() => null),
+  ]);
   const price = stock.dexPriceUsd ?? stock.priceUsd;
+  const referencePrice = reference ? Number(reference.price) : null;
+  const tokenPrice = stock.dexPriceUsd ? Number(stock.dexPriceUsd) : null;
+  const premium =
+    referencePrice && referencePrice > 0 && tokenPrice
+      ? (tokenPrice / referencePrice - 1) * 100
+      : null;
   return (
     <div className="min-h-full bg-ink p-4 md:p-8">
       <Link
@@ -70,14 +79,18 @@ export default async function PublicStockPage({ params }: { params: Promise<{ sy
           </div>
         ))}
       </div>
-      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="rounded-lg border border-line bg-panel p-6">
-          <h2 className="text-base font-semibold text-white">Market details</h2>
+          <h2 className="text-base font-semibold text-white">Market and reference</h2>
+          <p className="mt-2 text-xs text-slate-400">
+            The onchain quote and the underlying equity reference come from different markets. The
+            comparison is indicative, not an executable spread.
+          </p>
           <div className="mt-5 grid gap-4 text-xs sm:grid-cols-2">
             <div>
-              <p className="text-slate-500">Issuer price</p>
+              <p className="text-slate-500">Pyth equity reference</p>
               <p className="mt-2 font-mono text-white">
-                {stock.priceUsd ? `$${Number(stock.priceUsd).toFixed(2)}` : "—"}
+                {referencePrice ? `$${referencePrice.toFixed(2)}` : "Unavailable"}
               </p>
             </div>
             <div>
@@ -85,6 +98,29 @@ export default async function PublicStockPage({ params }: { params: Promise<{ sy
               <p className="mt-2 font-mono text-white">
                 {stock.dexPriceUsd ? `$${Number(stock.dexPriceUsd).toFixed(2)}` : "—"}
               </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Token premium / discount</p>
+              <p
+                className={`mt-2 font-mono ${premium == null ? "text-slate-400" : premium >= 0 ? "text-amber-300" : "text-emerald-300"}`}
+              >
+                {premium == null
+                  ? "Unavailable"
+                  : `${premium > 0 ? "+" : ""}${premium.toFixed(2)}%`}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Reference status</p>
+              <p className="mt-2 font-mono text-white">
+                {reference
+                  ? `${reference.referenceFreshness.replace("_", " ")} · ${reference.marketSession ?? "session unknown"}`
+                  : "Feed unavailable"}
+              </p>
+              {reference && (
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Generated {new Date(reference.feedUpdateTimestamp).toLocaleString()}
+                </p>
+              )}
             </div>
             <div className="sm:col-span-2">
               <p className="text-slate-500">Token address</p>
@@ -102,12 +138,14 @@ export default async function PublicStockPage({ params }: { params: Promise<{ sy
             </a>
           )}
         </section>
-        <StockTradeTicket
-          mint={stock.mint}
-          symbol={stock.symbol}
-          price={price}
-          halted={stock.tradingHalted}
-        />
+        <div className="self-start lg:sticky lg:top-4">
+          <StockTradeTicket
+            mint={stock.mint}
+            symbol={stock.symbol}
+            price={price}
+            halted={stock.tradingHalted}
+          />
+        </div>
       </div>
       <section className="mt-5 rounded-lg border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">

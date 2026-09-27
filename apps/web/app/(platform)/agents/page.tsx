@@ -19,6 +19,9 @@ export default async function AgentsPage() {
     (error: unknown) => ({ value: null, error }),
   );
   const agents = result.value;
+  const templates = [...(agents?.templates ?? [])].sort((a, b) =>
+    a.id === "private-market-value-v1" ? -1 : b.id === "private-market-value-v1" ? 1 : 0,
+  );
   const account = Boolean(
     session &&
       !session.accessToken.startsWith("guest:") &&
@@ -35,6 +38,10 @@ export default async function AgentsPage() {
         }
       />
       <div className="overflow-x-auto border-b border-line bg-panel px-4 py-5">
+        <p className="mb-4 text-xs text-amber-200">
+          Current capability: research and saved drafts. Later stages require measured evaluation
+          and explicit approval.
+        </p>
         <div className="flex min-w-[760px] items-center">
           {stages.map((stage, index) => (
             <div key={stage} className="flex flex-1 items-center">
@@ -67,7 +74,7 @@ export default async function AgentsPage() {
               Strategy templates
             </h2>
             <div className="grid gap-3 p-3 md:grid-cols-2">
-              {agents?.templates.map((agent) => (
+              {templates.map((agent) => (
                 <article key={agent.id} className="border border-line bg-ink p-4">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-semibold text-white">{agent.name}</h3>
@@ -87,7 +94,8 @@ export default async function AgentsPage() {
                   </p>
                   <AgentResearch id={agent.id} />
                 </article>
-              )) ?? <p className="p-4 text-xs text-amber-300">Agent service unavailable.</p>}
+              ))}
+              {!agents && <p className="p-4 text-xs text-amber-300">Agent service unavailable.</p>}
             </div>
           </section>
           <section className="border border-line bg-panel">

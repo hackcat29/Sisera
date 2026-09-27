@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { decimalFromMantissa, fairValue, parsePythReference } from "../src/pyth-pro.js";
+import {
+  PythProProvider,
+  decimalFromMantissa,
+  fairValue,
+  parsePythReference,
+} from "../src/pyth-pro.js";
 
 const now = 1_750_000_000_000;
 const freshUs = String(now * 1000);
@@ -50,5 +55,67 @@ describe("Pyth Pro reference pricing", () => {
     expect(Number(comparison.premiumDiscountBps)).toBeGreaterThan(100);
     expect(comparison.divergenceZScore).toBeNull();
     expect(comparison.executable).toBe(false);
+  });
+
+  it("resolves an equity ticker to its exact Pyth symbol", async () => {
+    const calls: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      calls.push(String(input));
+      return Response.json(
+        calls.length === 1
+          ? [
+              {
+                pyth_lazer_id: 922,
+                symbol: "Equity.US.AAPL/USD",
+                name: "Apple",
+                asset_type: "equity",
+              },
+            ]
+          : payload(freshUs),
+      );
+    }) as typeof fetch;
+    const provider = new PythProProvider(
+      "test-key",
+      "https://history.test",
+      "https://prices.test",
+      fetcher,
+    );
+    const result = await provider.getLatest("AAPL");
+    expect(result.symbol).toBe("Equity.US.AAPL/USD");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("batches listed equities and ignores unrelated symbols", async () => {
+    const calls: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      calls.push(String(input));
+      return Response.json(
+        calls.length === 1
+          ? [
+              {
+                pyth_lazer_id: 922,
+                symbol: "Equity.US.AAPL/USD",
+                name: "Apple",
+                asset_type: "equity",
+              },
+              {
+                pyth_lazer_id: 923,
+                symbol: "Equity.US.TSLA/USD",
+                name: "Tesla",
+                asset_type: "equity",
+              },
+            ]
+          : payload(freshUs),
+      );
+    }) as typeof fetch;
+    const provider = new PythProProvider(
+      "test-key",
+      "https://history.test",
+      "https://prices.test",
+      fetcher,
+    );
+    const result = await provider.getLatestEquities(["AAPL", "UNKNOWN"]);
+    expect(result.map((item) => item.symbol)).toEqual(["Equity.US.AAPL/USD"]);
+    expect(calls).toHaveLength(2);
   });
 });

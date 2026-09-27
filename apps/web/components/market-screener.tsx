@@ -90,7 +90,15 @@ export function MarketScreener({
               {row.original.instrument.venue} {row.original.instrument.type}
             </p>
             <p className="mt-1 font-mono text-[10px] text-slate-500">
-              {new Date(row.original.snapshot.quality.receivedAt).toLocaleTimeString()}
+              {row.original.snapshot.quality.status} ·{" "}
+              {new Intl.DateTimeFormat("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hourCycle: "h23",
+                timeZone: "UTC",
+              }).format(new Date(row.original.snapshot.quality.observedAt))}{" "}
+              UTC
             </p>
           </div>
         ),
@@ -134,7 +142,7 @@ export function MarketScreener({
             {venue === "hyperliquid" ? "Perpetual markets" : "Spot markets"}
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            Live book quotes and 24-hour activity from{" "}
+            Latest observed quotes and 24-hour activity from{" "}
             {venue === "hyperliquid" ? "Hyperliquid" : "Binance"}
           </p>
         </div>
@@ -185,12 +193,22 @@ export function MarketScreener({
                 ))}
               </tr>
             ))}
+            {table.getRowModel().rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-5 py-10 text-center text-sm text-slate-400"
+                >
+                  No markets match this search. Try a symbol or asset name.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
       <div className="flex h-12 items-center justify-between border-t border-line px-5 font-mono text-[10px] uppercase tracking-wider text-slate-500">
-        <span>{table.getRowModel().rows.length} verified markets</span>
-        <span>Updated from public venue data</span>
+        <span>{table.getRowModel().rows.length} markets shown</span>
+        <span>Quote status and observed time shown per market</span>
       </div>
     </section>
   );

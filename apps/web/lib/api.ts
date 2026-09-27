@@ -80,6 +80,16 @@ export type PublicStock = {
   fetchedAt: string;
   source: "xstocks";
 };
+export type PythReference = {
+  symbol: string;
+  price: string;
+  confidence: string | null;
+  marketSession: string | null;
+  feedUpdateTimestamp: string;
+  referenceFreshness: "live" | "carried_forward" | "stale";
+  ageMs: number;
+  source: "pyth-pro";
+};
 export type ClawpumpToken = {
   mint?: string;
   address?: string;
@@ -288,6 +298,24 @@ export async function getPrivateMarkets(identity: ApiIdentity) {
 
 export async function getPublicStocks(identity: ApiIdentity) {
   const payload = await getJson<{ data: PublicStock[] }>("/v1/public-stocks", identity, 15000);
+  return payload.data;
+}
+
+export async function getPythReference(symbol: string, identity: ApiIdentity) {
+  const payload = await getJson<{ data: PythReference }>(
+    `/v1/pyth/reference?symbol=${encodeURIComponent(symbol)}`,
+    identity,
+    9000,
+  );
+  return payload.data;
+}
+
+export async function getPythReferences(symbols: readonly string[], identity: ApiIdentity) {
+  const payload = await getJson<{ data: PythReference[] }>(
+    `/v1/pyth/references?symbols=${encodeURIComponent(symbols.join(","))}`,
+    identity,
+    10000,
+  );
   return payload.data;
 }
 

@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   Boxes,
+  BrainCircuit,
   BriefcaseBusiness,
   CandlestickChart,
   ChevronLeft,
@@ -35,6 +36,13 @@ import { SiseraMark } from "./sisera-mark";
 
 export { SiseraMark } from "./sisera-mark";
 
+type SearchAsset = {
+  href: string;
+  name: string;
+  symbol: string;
+  category: "Public stock" | "Private market";
+};
+
 const navigation = [
   {
     label: "Stock markets",
@@ -58,6 +66,10 @@ const navigation = [
       { href: "/macro", label: "Macro & chains", hint: "⌥4", icon: Globe2 },
       { href: "/social", label: "Social feeds", hint: "", icon: Rss },
     ],
+  },
+  {
+    label: "Research",
+    items: [{ href: "/intelligence", label: "Intelligence", hint: "", icon: BrainCircuit }],
   },
   {
     label: "Portfolio",
@@ -91,6 +103,8 @@ export function OperatorShell({
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [searchAssets, setSearchAssets] = useState<SearchAsset[]>([]);
+  const [searchState, setSearchState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const allCommands = useMemo(
     () => [...navigation.flatMap((group) => group.items), ...utilityNavigation],
     [],
@@ -102,10 +116,41 @@ export function OperatorShell({
         event.preventDefault();
         setCommandsOpen((open) => !open);
       }
+      const editing =
+        event.target instanceof HTMLElement &&
+        (event.target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName));
+      if (!editing && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+        const shortcut: Record<string, string> = {
+          "1": "/stocks",
+          "2": "/private-markets",
+          "4": "/macro",
+        };
+        const href = shortcut[event.key];
+        if (href) {
+          event.preventDefault();
+          router.push(href);
+        }
+      }
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, []);
+  }, [router]);
+
+  useEffect(() => {
+    if (!commandsOpen || searchState !== "idle") return;
+    setSearchState("loading");
+    fetch("/api/search-index")
+      .then((response) => {
+        if (!response.ok) throw new Error("Search index unavailable");
+        return response.json() as Promise<{ data: SearchAsset[] }>;
+      })
+      .then((payload) => {
+        setSearchAssets(payload.data);
+        setSearchState("ready");
+      })
+      .catch(() => setSearchState("error"));
+  }, [commandsOpen, searchState]);
 
   const navigate = (href: string) => {
     setCommandsOpen(false);
@@ -234,7 +279,7 @@ export function OperatorShell({
               className="flex h-9 min-w-8 items-center gap-2 rounded-md border border-line bg-panel px-3 text-[12px] text-slate-400 hover:border-slate-500 sm:min-w-52"
             >
               <Search size={13} />
-              <span className="hidden sm:inline">Search Sisera</span>
+              <span className="hidden sm:inline">Search markets</span>
               <span className="ml-auto hidden font-mono text-[9px] text-slate-700 sm:inline">
                 ⌘K
               </span>
@@ -301,7 +346,7 @@ export function OperatorShell({
                 <Search size={16} className="text-cyan-300" />
                 <Command.Input
                   autoFocus
-                  placeholder="Search pages…"
+                  placeholder="Search pages, companies, or symbols…"
                   className="h-14 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600"
                 />
                 <span className="border border-line px-1.5 py-1 font-mono text-[9px] text-slate-600">
@@ -327,6 +372,42 @@ export function OperatorShell({
                     </Command.Item>
                   ))}
                 </Command.Group>
+                <Command.Group
+                  heading="Markets"
+                  className="text-[9px] uppercase tracking-widest text-slate-600"
+                >
+                  {searchAssets.map((asset) => (
+                    <Command.Item
+                      key={asset.href}
+                      value={`${asset.name} ${asset.symbol} ${asset.category}`}
+                      onSelect={() => navigate(asset.href)}
+                      className="mt-1 flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-sm normal-case tracking-normal text-slate-300 data-[selected=true]:bg-slate-800 data-[selected=true]:text-white"
+                    >
+                      <span className="truncate">
+                        {asset.name}{" "}
+                        <span className="font-mono text-slate-500">{asset.symbol}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-slate-500">
+                        {asset.category}
+                      </span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+                {searchState === "loading" && (
+                  <p className="px-3 py-2 text-xs text-slate-500">Loading markets…</p>
+                )}
+                {searchState === "error" && (
+                  <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-amber-300">
+                    <span>Market search is unavailable; page navigation still works.</span>
+                    <button
+                      type="button"
+                      onClick={() => setSearchState("idle")}
+                      className="text-cyan-300 hover:text-white"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
               </Command.List>
               <div className="flex items-center justify-between border-t border-line px-4 py-2 font-mono text-[9px] uppercase tracking-wider text-slate-700">
                 <span>↑↓ Navigate · ↵ Open</span>

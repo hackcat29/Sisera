@@ -260,6 +260,8 @@ export default async function TerminalPage({
               ask={snapshot?.ask}
               symbol={symbol}
               quoteAsset={market?.instrument.quoteAsset ?? "USDT"}
+              quoteObservedAt={snapshot?.quality.observedAt}
+              quoteStatus={snapshot?.quality.status}
             />
           </aside>
         </div>

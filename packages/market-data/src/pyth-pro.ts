@@ -104,6 +104,7 @@ export function fairValue(
 }
 
 export class PythProProvider {
+  private equitySymbols: { until: number; value: z.infer<typeof PythSymbol>[] } | null = null;
   constructor(
     private readonly apiKey: string,
     private readonly historyUrl = "https://pyth.dourolabs.app/v1",
@@ -126,7 +127,14 @@ export class PythProProvider {
   async getLatest(symbol: string): Promise<PythReference> {
     if (!this.apiKey) throw new Error("Pyth Pro API key is not configured");
     const candidates = await this.searchSymbols(symbol);
-    const feed = candidates.find((item) => item.symbol === symbol);
+    const normalized = symbol.toUpperCase();
+    const feed =
+      candidates.find((item) => item.symbol.toUpperCase() === normalized) ??
+      candidates.find(
+        (item) =>
+          item.asset_type.toLowerCase() === "equity" &&
+          item.symbol.toUpperCase() === `EQUITY.US.${normalized}/USD`,
+      );
     if (!feed) throw new Error(`Pyth feed unavailable for ${symbol}`);
     const response = await this.fetcher(`${this.restUrl}/v1/latest_price`, {
       method: "POST",
@@ -140,6 +148,49 @@ export class PythProProvider {
       signal: AbortSignal.timeout(8000),
     });
     if (!response.ok) throw new Error(`Pyth latest price returned ${response.status}`);
-    return parsePythReference(await response.json(), symbol, feed.pyth_lazer_id);
+    return parsePythReference(await response.json(), feed.symbol, feed.pyth_lazer_id);
+  }
+
+  async getLatestEquities(tickers: readonly string[]): Promise<PythReference[]> {
+    if (!this.apiKey) throw new Error("Pyth Pro API key is not configured");
+    const unique = [...new Set(tickers.map((ticker) => ticker.toUpperCase()))]
+      .filter((ticker) => /^[A-Z0-9.-]{1,12}$/.test(ticker))
+      .slice(0, 40);
+    if (!unique.length) return [];
+    if (!this.equitySymbols || this.equitySymbols.until <= Date.now()) {
+      const response = await this.fetcher(`${this.historyUrl}/symbols?asset_type=equity`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error(`Pyth symbols returned ${response.status}`);
+      this.equitySymbols = {
+        until: Date.now() + 60 * 60_000,
+        value: z.array(PythSymbol).parse(await response.json()),
+      };
+    }
+    const symbols = this.equitySymbols.value.filter((feed) =>
+      unique.some((ticker) => feed.symbol.toUpperCase() === `EQUITY.US.${ticker}/USD`),
+    );
+    if (!symbols.length) return [];
+    const response = await this.fetcher(`${this.restUrl}/v1/latest_price`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        priceFeedIds: symbols.map((feed) => feed.pyth_lazer_id),
+        properties: ["price", "confidence", "marketSession", "feedUpdateTimestamp"],
+        formats: [],
+        channel: "fixed_rate@1000ms",
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new Error(`Pyth latest prices returned ${response.status}`);
+    const payload: unknown = await response.json();
+    return symbols.flatMap((feed) => {
+      try {
+        return [parsePythReference(payload, feed.symbol, feed.pyth_lazer_id)];
+      } catch {
+        return [];
+      }
+    });
   }
 }

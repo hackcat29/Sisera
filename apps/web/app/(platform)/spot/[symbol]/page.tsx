@@ -68,6 +68,8 @@ export default async function SpotMarketPage({ params }: { params: Promise<{ sym
               ask={market?.snapshot.ask}
               symbol={symbol}
               quoteAsset="USDT"
+              quoteObservedAt={market?.snapshot.quality.observedAt}
+              quoteStatus={market?.snapshot.quality.status}
             />
           </section>
           <section className="border border-line bg-panel p-4">
