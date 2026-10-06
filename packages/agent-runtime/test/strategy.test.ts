@@ -137,4 +137,19 @@ describe("governance", () => {
     expect(dispositionFor("risk_only", "enter")).toBe("record");
     expect(dispositionFor("risk_only", "exit")).toBe("execute");
   });
+
+  it("triggers trailing stop when price pulls back from peak", () => {
+    const trailingRules = StrategyRules.parse({
+      ...rules,
+      stopLossPct: 15,
+      trailingStopPct: 5,
+    });
+    // Entry price 100, peak was 120, current price 113 (more than 5% pullback from 120)
+    const decision = evaluateTick(
+      trailingRules,
+      { candles: series(80), price: 113 },
+      { quantity: 1, entryPrice: 100, openedAt: "", barsHeld: 5, highestPrice: 120 },
+    );
+    expect(decision).toMatchObject({ action: "exit", exitReason: "trailing_stop" });
+  });
 });

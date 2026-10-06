@@ -36,6 +36,9 @@ const EXAMPLES = [
   "Show me the strongest argument for and against buying Anthropic",
   "Which Clawpump agents are outperforming their paired stock?",
   "Buy $2,000 of OpenAI if the premium falls below 3%, liquidity remains above my threshold, and no high-severity negative event appears.",
+  "Build me a thematic take on humanoid robotics and automation",
+  "Create a thesis basket on the AI compute and power grid squeeze",
+  "Thematic take: Private AI labs vs public semiconductor giants",
 ];
 
 function RankingCard({ title, data }: { title: string; data: unknown }) {
@@ -305,9 +308,330 @@ function CardView({ card, onPolicy }: { card: Card; onPolicy: () => void }) {
         </div>
       );
     }
+    case "backtest_result":
+      return <BacktestResultCard data={card.data} />;
+    case "take_card":
+      return <TakeCard data={card.data} onArmed={onPolicy} />;
     default:
       return null;
   }
+}
+
+function BacktestResultCard({ data }: { data: unknown }) {
+  const result = data as {
+    asset: { symbol: string; name: string };
+    metrics: {
+      sharpe: number;
+      sortino: number;
+      totalReturnPct: number;
+      cagrPct: number;
+      maxDrawdownPct: number;
+      winRatePct: number;
+    };
+    gate: { outcome: string; summary: string };
+    years: number;
+    tradeCount: number;
+  };
+  if (!result || !result.metrics) return null;
+  const isPassed = result.gate?.outcome === "passed";
+  return (
+    <div className="border border-line bg-ink p-4 space-y-3 text-xs">
+      <div className="flex items-center justify-between border-b border-line pb-2">
+        <div>
+          <span className="font-mono font-bold text-slate-100 text-sm">{result.asset?.symbol}</span>
+          <span className="text-slate-400 ml-2">
+            Backtest Analysis ({result.years?.toFixed(1)}y)
+          </span>
+        </div>
+        <span
+          className={`font-mono text-[10px] font-bold px-2 py-0.5 border ${
+            isPassed
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+              : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+          }`}
+        >
+          GATE: {result.gate?.outcome?.toUpperCase()}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono">
+        <div className="bg-surface p-2 border border-line/60">
+          <p className="text-[10px] text-slate-400 uppercase">Sharpe</p>
+          <p className="text-sm font-bold text-emerald-400">{result.metrics.sharpe.toFixed(2)}</p>
+        </div>
+        <div className="bg-surface p-2 border border-line/60">
+          <p className="text-[10px] text-slate-400 uppercase">Return (CAGR)</p>
+          <p className="text-sm font-bold text-slate-100">
+            +{result.metrics.totalReturnPct.toFixed(1)}% ({result.metrics.cagrPct.toFixed(1)}%)
+          </p>
+        </div>
+        <div className="bg-surface p-2 border border-line/60">
+          <p className="text-[10px] text-slate-400 uppercase">Max Drawdown</p>
+          <p className="text-sm font-bold text-rose-400">
+            -{result.metrics.maxDrawdownPct.toFixed(1)}%
+          </p>
+        </div>
+        <div className="bg-surface p-2 border border-line/60">
+          <p className="text-[10px] text-slate-400 uppercase">Win Rate</p>
+          <p className="text-sm font-bold text-slate-100">
+            {result.metrics.winRatePct.toFixed(1)}% ({result.tradeCount} trades)
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-slate-400 text-[11px]">{result.gate?.summary}</span>
+        <a
+          href="/agents"
+          className="px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 font-mono text-[10px] font-bold"
+        >
+          DEPLOY TO PAPER →
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function TakeCard({ data, onArmed }: { data: unknown; onArmed: () => void }) {
+  const take = data as {
+    id: string;
+    title: string;
+    slug: string;
+    thesis: string;
+    macroTheme: string;
+    targetTotalNotionalUsd: number;
+    constituents: Array<{
+      symbol: string;
+      name: string;
+      category: string;
+      weightPct: number;
+      targetNotionalUsd: number;
+      entryTriggers: Array<{ type: string } & Record<string, unknown>>;
+      invalidationRules: Array<{ type: string } & Record<string, unknown>>;
+      rationale: string;
+    }>;
+    riskGuardrails: {
+      maxDailyDrawdownPct: number;
+      requireNoCriticalEvent: boolean;
+      secFilingAware: boolean;
+    };
+    autopilot: boolean;
+    stressScenarios: {
+      equitySelloffPct: number;
+      privateMarkResetPct: number;
+      cryptoCrashPct: number;
+      liquidityFreezePct: number;
+      weekendGapPct: number;
+    };
+    metrics: {
+      estimatedSharpe: number;
+      estimatedVol30dPct: number;
+      effectivePositions: number;
+      diversificationScore: number;
+    };
+  };
+
+  const signer = useSolanaSigner();
+  const [state, setState] = useState<"idle" | "arming" | "armed" | "tokenizing" | "tokenized">(
+    "idle",
+  );
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [tokenizedSpec, setTokenizedSpec] = useState<{
+    tokenSymbol: string;
+    tokenName: string;
+    pairedStock: string;
+  } | null>(null);
+
+  if (!take || !take.constituents) return null;
+
+  const armTake = async () => {
+    setState("arming");
+    setFeedback(null);
+    try {
+      const res = await platform<{ armedCount: number }>("takes/arm", {
+        body: {
+          take,
+          mode: "paper",
+          wallet: signer.address ?? null,
+        },
+      });
+      setState("armed");
+      setFeedback(
+        `Armed ${res.armedCount} constituent policies under 24/7 Autopilot. SEC EDGAR and news guards active.`,
+      );
+      onArmed();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : "Failed to arm take policies.");
+      setState("idle");
+    }
+  };
+
+  const tokenizeTake = async () => {
+    setState("tokenizing");
+    setFeedback(null);
+    try {
+      const res = await platform<{ tokenSymbol: string; tokenName: string; pairedStock: string }>(
+        "takes/tokenize",
+        {
+          body: { take },
+        },
+      );
+      setTokenizedSpec(res);
+      setState("tokenized");
+      setFeedback(
+        `Take tokenized spec created! Symbol ${res.tokenSymbol} anchored against ${res.pairedStock}.`,
+      );
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : "Failed to tokenize take.");
+      setState("idle");
+    }
+  };
+
+  return (
+    <div className="border border-bronze-500/40 bg-ink p-4 space-y-3.5 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-base font-bold text-slate-100">{take.title}</span>
+            <span className="border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-300">
+              ⚡ AUTOPILOT ACTIVE
+            </span>
+            <span className="border border-bronze-500/40 bg-bronze-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-bronze-300">
+              DBC READY
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {take.macroTheme} · Target Capital: ${take.targetTotalNotionalUsd.toLocaleString()} ·
+            SEC EDGAR 8-K Verified
+          </p>
+        </div>
+        <div className="text-right font-mono">
+          <span className="text-[10px] text-slate-400 uppercase">Est. Sharpe</span>
+          <p className="text-sm font-bold text-emerald-400">
+            {take.metrics.estimatedSharpe.toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-surface/60 border border-line/60 p-2.5 text-slate-300 leading-relaxed italic text-[11px]">
+        "{take.thesis}"
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="data-label text-bronze-300">Multi-Asset Allocation & Conditions</p>
+        <div className="overflow-x-auto border border-line">
+          <table className="w-full text-left text-[11px]">
+            <thead className="border-b border-line bg-surface/40 text-[10px] uppercase text-slate-500">
+              <tr>
+                <th className="px-2.5 py-1.5 font-medium">Asset</th>
+                <th className="px-2.5 py-1.5 font-medium">Category</th>
+                <th className="px-2.5 py-1.5 font-medium">Weight</th>
+                <th className="px-2.5 py-1.5 font-medium">Target $</th>
+                <th className="px-2.5 py-1.5 font-medium">Autopilot Rules</th>
+                <th className="px-2.5 py-1.5 font-medium">Thesis Rationale</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/40 font-mono text-slate-300">
+              {take.constituents.map((c) => (
+                <tr key={c.symbol} className="hover:bg-surface/30">
+                  <td className="px-2.5 py-1.5 font-bold text-slate-100">{c.symbol}</td>
+                  <td className="px-2.5 py-1.5 text-[10px]">
+                    <span className="border border-line px-1 py-0.5 text-slate-400">
+                      {c.category.replace(/_/g, " ").toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="px-2.5 py-1.5 font-bold text-bronze-300">{c.weightPct}%</td>
+                  <td className="px-2.5 py-1.5">${c.targetNotionalUsd.toLocaleString()}</td>
+                  <td className="px-2.5 py-1.5 text-[10px] font-sans text-slate-400">
+                    {c.entryTriggers.length
+                      ? c.entryTriggers.map((t) => describeCondition(t)).join(", ")
+                      : "Sourced Entry"}
+                  </td>
+                  <td
+                    className="px-2.5 py-1.5 text-[10px] font-sans text-slate-400 max-w-[200px] truncate"
+                    title={c.rationale}
+                  >
+                    {c.rationale}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="data-label text-slate-400">
+          Scenario Stress Test Matrix & Quantitative Bounds
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-center">
+          <div className="bg-surface p-2 border border-line/60">
+            <p className="text-[9px] text-slate-500 uppercase">Equity Selloff (-15%)</p>
+            <p className="text-xs font-bold text-rose-400">
+              {take.stressScenarios.equitySelloffPct}%
+            </p>
+          </div>
+          <div className="bg-surface p-2 border border-line/60">
+            <p className="text-[9px] text-slate-500 uppercase">Private Reset (-25%)</p>
+            <p className="text-xs font-bold text-rose-400">
+              {take.stressScenarios.privateMarkResetPct}%
+            </p>
+          </div>
+          <div className="bg-surface p-2 border border-line/60">
+            <p className="text-[9px] text-slate-500 uppercase">Crypto Crash (-20%)</p>
+            <p className="text-xs font-bold text-rose-400">
+              {take.stressScenarios.cryptoCrashPct}%
+            </p>
+          </div>
+          <div className="bg-surface p-2 border border-line/60">
+            <p className="text-[9px] text-slate-500 uppercase">Diversification</p>
+            <p className="text-xs font-bold text-emerald-400">
+              {take.metrics.diversificationScore}/100 ({take.metrics.effectivePositions} eff)
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {feedback && (
+        <Note tone={state === "armed" || state === "tokenized" ? "positive" : "warning"}>
+          {feedback}
+        </Note>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-line/60">
+        <div className="flex gap-2">
+          {state !== "armed" && (
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={state === "arming"}
+              onClick={armTake}
+            >
+              {state === "arming" ? "Arming Autopilot..." : "⚡ Arm Take (Autopilot)"}
+            </button>
+          )}
+          {state !== "tokenized" && (
+            <button
+              type="button"
+              className={ghostButtonClass}
+              disabled={state === "tokenizing"}
+              onClick={tokenizeTake}
+            >
+              {state === "tokenizing" ? "Tokenizing..." : "🚀 Tokenize on Meteora DBC"}
+            </button>
+          )}
+        </div>
+        {tokenizedSpec && (
+          <Link
+            href={`/launch?symbol=${tokenizedSpec.tokenSymbol}&pair=${tokenizedSpec.pairedStock}`}
+            className="text-[10px] text-bronze-300 underline font-mono hover:text-bronze-200"
+          >
+            Open in Launch Studio ({tokenizedSpec.tokenSymbol}) →
+          </Link>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Sisera AI: evidence-backed answers and conversational policies that never trade on their own. */

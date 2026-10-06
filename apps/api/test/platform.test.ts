@@ -27,6 +27,14 @@ describe("Sisera AI routing", () => {
     );
     expect(classifyIntent("Buy $2,000 if the premium falls below 3%")).toBe("policy");
     expect(classifyIntent("Rank pre-IPO companies by liquidity")).toBe("private_ranking");
+    expect(classifyIntent("Backtest an RSI strategy on NVDAx")).toBe("backtest");
+    expect(classifyIntent("Simulate agent performance over the last 2 years")).toBe("backtest");
+    expect(classifyIntent("Build me a thematic take on humanoid robotics and automation")).toBe(
+      "thematic_take",
+    );
+    expect(classifyIntent("Create a thesis basket on AI compute power squeeze")).toBe(
+      "thematic_take",
+    );
   });
 });
 
@@ -45,10 +53,15 @@ describe("agent manifests", () => {
       stopLossPct: 5,
       takeProfitPct: 10,
       maxSlippageBps: 20,
-      rules: { entry: [{ type: "ema_trend", fast: 20, slow: 50, direction: "bullish" }], exit: [] },
+      rules: {
+        entry: [{ type: "ema_trend", fast: 20, slow: 50, direction: "bullish" }],
+        exit: [],
+        trailingStopPct: 3.5,
+      },
     });
     const { policy, manifestHash } = compileAgentDraft(input);
     expect(policy.rules?.entry[0]).toMatchObject({ type: "ema_trend", requireCross: false });
+    expect(policy.rules?.trailingStopPct).toBe(3.5);
     expect(policy.execution.proposalOnly).toBe(true);
     expect(manifestHash).toMatch(/^[0-9a-f]{64}$/);
     expect(
@@ -217,6 +230,41 @@ describe("platform routes", () => {
     });
     expect(response.statusCode).toBe(503);
     expect(response.json().error).toBe("launches_disabled");
+    await app.close();
+  });
+
+  it("compiles and tokenizes thematic takes", async () => {
+    const app = await buildApi(
+      readConfig({
+        NODE_ENV: "test",
+        LOG_LEVEL: "silent",
+        SISERA_ALLOW_DEV_AUTH: "true",
+      }),
+    );
+    const compileRes = await app.inject({
+      method: "POST",
+      url: "/v1/takes/compile",
+      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
+      payload: {
+        text: "Thematic take on humanoid robotics and automation",
+        totalNotionalUsd: 10_000,
+      },
+    });
+    expect(compileRes.statusCode).toBe(200);
+    const take = compileRes.json().data;
+    expect(take.title).toContain("Humanoid Robotics");
+    expect(take.constituents.length).toBeGreaterThanOrEqual(3);
+
+    const tokenizeRes = await app.inject({
+      method: "POST",
+      url: "/v1/takes/tokenize",
+      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
+      payload: { take },
+    });
+    expect(tokenizeRes.statusCode).toBe(200);
+    const tokenization = tokenizeRes.json().data;
+    expect(tokenization.curvePreset).toBe("reference_anchored");
+    expect(tokenization.tokenSymbol).toMatch(/^TKE/);
     await app.close();
   });
 });

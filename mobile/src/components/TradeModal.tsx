@@ -68,7 +68,12 @@ export const TradeModal: React.FC<TradeModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           {/* Header */}
@@ -81,7 +86,11 @@ export const TradeModal: React.FC<TradeModalProps> = ({
                 ${asset.priceUsd.toFixed(2)} USD • {asset.name}
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeButton}
+              hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            >
               <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
           </View>

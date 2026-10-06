@@ -6,6 +6,7 @@ import {
   evaluateCondition,
   evaluatePolicy,
   parseClause,
+  synthesizeThematicTake,
   validatePolicy,
 } from "../src/index.js";
 
@@ -164,5 +165,58 @@ describe("policy evaluation", () => {
     expect(
       evaluateCondition({ type: "rsi_above", period: 14, value: 70 }, { candles }).passed,
     ).toBe(true);
+  });
+
+  it("evaluates SEC filing and positive catalyst conditions", () => {
+    const now = 1_700_000_000_000;
+    const events = [
+      {
+        severity: "high" as const,
+        sentiment: "positive" as const,
+        certainty: "confirmed",
+        lastSeenAt: new Date(now - 1_800_000).toISOString(),
+        headline: "Item 2.02: Operating Results Exceed Expectations (SEC 8-K Filing)",
+        sourceTier: "regulatory_filing",
+      },
+    ];
+
+    expect(
+      evaluateCondition({ type: "sec_filing_detected", lookbackHours: 24 }, { events }, now).passed,
+    ).toBe(true);
+    expect(
+      evaluateCondition(
+        { type: "sec_filing_detected", lookbackHours: 24, itemCode: "Item 2.02" },
+        { events },
+        now,
+      ).passed,
+    ).toBe(true);
+    expect(
+      evaluateCondition(
+        {
+          type: "positive_catalyst",
+          minSeverity: "medium",
+          lookbackHours: 24,
+          requireConfirmedOrCorroborated: true,
+        },
+        { events },
+        now,
+      ).passed,
+    ).toBe(true);
+  });
+
+  it("synthesizes thematic takes and computes stress scenarios", () => {
+    const take = synthesizeThematicTake({
+      themeText: "Humanoid robots will transform domestic and industrial labor",
+      totalNotionalUsd: 10_000,
+    });
+    expect(take.title).toContain("Humanoid Robotics");
+    expect(take.constituents.length).toBeGreaterThanOrEqual(3);
+    expect(take.targetTotalNotionalUsd).toBe(10_000);
+    expect(take.stressScenarios.equitySelloffPct).toBeLessThan(0);
+    expect(take.stressScenarios.privateMarkResetPct).toBeLessThan(0);
+    expect(take.metrics.estimatedSharpe).toBeGreaterThan(1.0);
+    expect(take.metrics.effectivePositions).toBeGreaterThan(1.5);
+    expect(take.autopilot).toBe(true);
+    expect(take.riskGuardrails.secFilingAware).toBe(true);
   });
 });

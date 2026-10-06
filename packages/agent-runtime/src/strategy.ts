@@ -17,6 +17,7 @@ export const StrategyRules = z
     positionSizeUsd: z.number().positive().max(1_000_000),
     stopLossPct: z.number().positive().max(90),
     takeProfitPct: z.number().positive().max(1000),
+    trailingStopPct: z.number().positive().max(90).optional(),
     maxHoldingBars: z.number().int().positive().max(10_000).optional(),
     cooldownBars: z.number().int().min(0).max(1000).default(0),
   })
@@ -56,7 +57,13 @@ export type BacktestTrade = {
   exitPrice: number;
   returnPct: number;
   pnlUsd: number;
-  exitReason: "stop_loss" | "take_profit" | "exit_rule" | "max_holding" | "end_of_data";
+  exitReason:
+    | "stop_loss"
+    | "take_profit"
+    | "trailing_stop"
+    | "exit_rule"
+    | "max_holding"
+    | "end_of_data";
 };
 
 export type BacktestResult = {
@@ -123,7 +130,12 @@ export function runBacktest(
   const cost = (config.feeBps + config.slippageBps) / 10_000;
   const warmup = 30;
   let cash = config.initialCapitalUsd;
-  let position: { entryIndex: number; entryPrice: number; quantity: number } | null = null;
+  let position: {
+    entryIndex: number;
+    entryPrice: number;
+    quantity: number;
+    peakPrice?: number;
+  } | null = null;
   let cooldownUntil = -1;
   let barsInMarket = 0;
   const trades: BacktestTrade[] = [];
@@ -152,10 +164,20 @@ export function runBacktest(
     const close = Number(candle.close);
     if (position) {
       barsInMarket++;
+      position.peakPrice = Math.max(position.peakPrice ?? position.entryPrice, Number(candle.high));
       const stop = position.entryPrice * (1 - rules.stopLossPct / 100);
       const target = position.entryPrice * (1 + rules.takeProfitPct / 100);
+      const trailingStop = rules.trailingStopPct
+        ? position.peakPrice * (1 - rules.trailingStopPct / 100)
+        : null;
       if (index > position.entryIndex && Number(candle.low) <= stop)
         closeTrade(index, Math.min(stop, Number(candle.open)), "stop_loss");
+      else if (
+        trailingStop != null &&
+        index > position.entryIndex &&
+        Number(candle.low) <= trailingStop
+      )
+        closeTrade(index, Math.min(trailingStop, Number(candle.open)), "trailing_stop");
       else if (index > position.entryIndex && Number(candle.high) >= target)
         closeTrade(index, Math.max(target, Number(candle.open)), "take_profit");
       else if (rules.maxHoldingBars && index - position.entryIndex >= rules.maxHoldingBars)
@@ -175,7 +197,12 @@ export function runBacktest(
         const size = Math.min(rules.positionSizeUsd, cash);
         if (size > 0) {
           const entryPrice = close * (1 + cost);
-          position = { entryIndex: index, entryPrice, quantity: size / entryPrice };
+          position = {
+            entryIndex: index,
+            entryPrice,
+            quantity: size / entryPrice,
+            peakPrice: entryPrice,
+          };
           cash -= size;
         }
       }
@@ -600,6 +627,7 @@ export type TickPosition = {
   entryPrice: number;
   openedAt: string;
   barsHeld: number;
+  highestPrice?: number;
 } | null;
 
 export type TickDecision = {
@@ -625,6 +653,21 @@ export function evaluateTick(
         action: "exit",
         exitReason: "stop_loss",
         reasons: [`Stop loss at ${rules.stopLossPct}% hit.`],
+        entryResults: [],
+        exitResults: exits.results,
+      };
+    const peakPrice = Math.max(position.highestPrice ?? position.entryPrice, price);
+    if (
+      rules.trailingStopPct &&
+      Number.isFinite(price) &&
+      price <= peakPrice * (1 - rules.trailingStopPct / 100)
+    )
+      return {
+        action: "exit",
+        exitReason: "trailing_stop",
+        reasons: [
+          `Trailing stop at ${rules.trailingStopPct}% from peak $${peakPrice.toFixed(2)} hit.`,
+        ],
         entryResults: [],
         exitResults: exits.results,
       };

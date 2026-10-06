@@ -8,6 +8,7 @@ export const AgentRulesInput = z
     exit: z.array(Condition).max(10).default([]),
     maxHoldingBars: z.coerce.number().int().positive().max(10_000).optional(),
     cooldownBars: z.coerce.number().int().min(0).max(1000).default(0),
+    trailingStopPct: z.coerce.number().positive().max(90).optional(),
   })
   .strict();
 

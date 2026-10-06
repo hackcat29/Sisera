@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { THEME } from "../constants/theme";
 
 interface TerminalHeaderProps {
@@ -13,8 +14,15 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
   subtitle = "SOLANA MAINNET • PYTH HERMES",
   onRefresh,
 }) => {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        { paddingTop: Math.max(insets.top, 16) + THEME.spacing.xs },
+      ]}
+    >
       <View style={styles.topRow}>
         <View style={styles.brandRow}>
           <View style={styles.terminalDot} />

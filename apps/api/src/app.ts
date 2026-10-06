@@ -762,6 +762,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     policies: policyService,
     rankings,
     agentMarket,
+    history,
     chat,
     model: config.SISERA_INTELLIGENCE_MODEL ?? null,
   });

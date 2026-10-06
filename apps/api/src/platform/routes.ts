@@ -1,4 +1,5 @@
 import { getRiskPreferences, saveRiskPreferences } from "@sisera/db";
+import { ThematicTake, calculateTakeStress, synthesizeThematicTake } from "@sisera/policy";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requirePermission } from "../auth.js";
@@ -6,7 +7,7 @@ import type { ApiConfig } from "../config.js";
 import type { WalletChain } from "../wallet-ownership.js";
 import type { AgentMarketService } from "./agent-market.js";
 import type { AgentService } from "./agent-service.js";
-import type { AssetCatalog } from "./catalog.js";
+import { AssetCatalog } from "./catalog.js";
 import type { CopilotService } from "./copilot-service.js";
 import { DBC_PRESETS } from "./dbc.js";
 import type { IntelligenceService } from "./intelligence-service.js";
@@ -415,6 +416,210 @@ export function registerPlatformRoutes(
     },
   );
 
+  // ------------------------------------------------------------------ thematic takes
+  app.post(
+    "/v1/takes/compile",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { text, totalNotionalUsd } = z
+        .object({
+          text: z.string().trim().min(3).max(2000),
+          totalNotionalUsd: z.number().positive().max(1_000_000).default(5000),
+        })
+        .parse(request.body);
+      const take = synthesizeThematicTake({
+        themeText: text,
+        totalNotionalUsd,
+      });
+      return { data: take };
+    },
+  );
+
+  app.post(
+    "/v1/takes/fork",
+    {
+      preHandler: requirePermission("order:paper:create"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      const input = z
+        .object({
+          take: ThematicTake,
+          totalNotionalUsd: z.number().positive().optional(),
+          constituentTweaks: z
+            .array(z.object({ symbol: z.string(), weightPct: z.number().min(1).max(100) }))
+            .optional(),
+        })
+        .parse(request.body);
+
+      const base = input.take;
+      const totalNotional = input.totalNotionalUsd ?? base.targetTotalNotionalUsd;
+      let constituents = base.constituents.map((c) => ({ ...c }));
+
+      if (input.constituentTweaks?.length) {
+        const tweakMap = new Map(input.constituentTweaks.map((t) => [t.symbol, t.weightPct]));
+        constituents = constituents.map((c) => {
+          const newWeight = tweakMap.get(c.symbol) ?? c.weightPct;
+          return {
+            ...c,
+            weightPct: newWeight,
+            targetNotionalUsd: Math.round((totalNotional * newWeight) / 100),
+          };
+        });
+      }
+
+      const { stressScenarios, metrics } = calculateTakeStress(constituents);
+      const forkedTake: ThematicTake = {
+        ...base,
+        id: `take:fork-${Date.now().toString(36)}`,
+        slug: `${base.slug}-forked`,
+        title: `${base.title} (Fork)`,
+        targetTotalNotionalUsd: totalNotional,
+        constituents,
+        stressScenarios,
+        metrics,
+        createdAt: new Date().toISOString(),
+        forkedFromId: base.id,
+      };
+
+      return { data: forkedTake };
+    },
+  );
+
+  app.post(
+    "/v1/takes/arm",
+    {
+      preHandler: requirePermission("order:paper:create"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.policies) return unavailable(reply, "Trading policies");
+      const input = z
+        .object({
+          take: ThematicTake,
+          mode: z.enum(["paper", "live"]).default("paper"),
+          wallet: Mint.nullable().optional(),
+        })
+        .parse(request.body);
+
+      const createdPolicies = [];
+      const expiresAt = new Date(Date.now() + 14 * 86_400_000).toISOString();
+
+      for (const constituent of input.take.constituents) {
+        const asset =
+          (await services.catalog.byKey(constituent.symbol).catch(() => null)) ??
+          (await services.catalog.resolveText(constituent.symbol).catch(() => null));
+        if (!asset) continue;
+
+        const policyDraft = {
+          version: 1,
+          name: `[${input.take.title}] ${constituent.symbol} (${constituent.weightPct}%)`,
+          instrument: AssetCatalog.toInstrumentRef(asset),
+          action: {
+            side: "buy" as const,
+            notionalUsd: Math.max(10, constituent.targetNotionalUsd),
+            mode: input.mode,
+          },
+          triggers: constituent.entryTriggers.length
+            ? constituent.entryTriggers
+            : [
+                {
+                  type: "no_negative_event" as const,
+                  minSeverity: "high" as const,
+                  lookbackHours: 24,
+                  includeRumors: true,
+                },
+              ],
+          invalidation: {
+            expiresAt,
+            conditions: constituent.invalidationRules,
+          },
+          execution: {
+            maxSlippageBps: 100,
+            requireApproval: false,
+          },
+          limits: {
+            maxPortfolioWeightPct: Math.min(100, constituent.weightPct * 1.5),
+            maxLiquidityUsagePct: 2,
+          },
+          sourceText: `Thematic Take Autopilot: ${input.take.title} - ${constituent.rationale}`,
+        };
+
+        try {
+          const row = await services.policies.create(principal, {
+            policy: policyDraft,
+            activate: true,
+            wallet: input.wallet ?? null,
+            source: "thematic_take",
+          });
+          createdPolicies.push(row);
+        } catch {
+          // Continue if single constituent fails validation
+        }
+      }
+
+      return reply.code(201).send({
+        data: {
+          takeId: input.take.id,
+          armedCount: createdPolicies.length,
+          policies: createdPolicies,
+          status: "armed",
+          autopilot: true,
+        },
+      });
+    },
+  );
+
+  app.post(
+    "/v1/takes/tokenize",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const input = z.object({ take: ThematicTake }).parse(request.body);
+      const take = input.take;
+
+      const code = take.title
+        .replace(/[^A-Za-z0-9]/g, "")
+        .slice(0, 5)
+        .toUpperCase();
+      const tokenSymbol = `TKE${code}`;
+      const tokenName = `${take.title.slice(0, 24)} Take Token`;
+
+      const equityConstituent = take.constituents.find((c) => c.category === "tokenized_equity");
+      const pairedStock = equityConstituent?.symbol ?? "NVDAx";
+
+      const tokenizationSpec = {
+        takeId: take.id,
+        tokenSymbol,
+        tokenName,
+        thesis: take.thesis,
+        pairedStock,
+        curvePreset: "reference_anchored" as const,
+        suggestedQuoteAsset: "USDC",
+        creatorFeeBps: 50,
+        antiSniperFeeBps: 250,
+        targetCapUsd: 100_000,
+        graduatesTo: "Meteora DAMM v2",
+        agentIdentity: {
+          name: `${take.title} Autopilot Agent`,
+          autonomy: "policy_auto",
+          strategyUniverse: take.constituents.map((c) => c.symbol),
+        },
+      };
+
+      return { data: tokenizationSpec };
+    },
+  );
+
   // ------------------------------------------------------------------ portfolio and risk
   app.get(
     "/v1/portfolio",
@@ -610,6 +815,56 @@ export function registerPlatformRoutes(
         .object({ reason: z.string().trim().min(3).max(300).default("Paused by operator.") })
         .parse(request.body ?? {});
       return { data: await service.pause(principal, AgentId.parse(request.params).id, reason) };
+    },
+  );
+  app.post(
+    "/v1/agents/emergency-halt",
+    { preHandler: requirePermission("agent:manage") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      const service = principal && agents(reply);
+      if (!principal || !service) return reply;
+      const { reason } = z
+        .object({
+          reason: z.string().trim().min(3).max(300).default("Global fleet emergency halt."),
+        })
+        .parse(request.body ?? {});
+      return { data: await service.emergencyHaltAll(principal, reason) };
+    },
+  );
+  app.get(
+    "/v1/agents/:id/vault",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      const service = principal && agents(reply);
+      if (!principal || !service) return reply;
+      return { data: await service.getAgentVault(principal, AgentId.parse(request.params).id) };
+    },
+  );
+  app.post(
+    "/v1/agents/:id/vault/deposit",
+    { preHandler: requirePermission("order:paper:create") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      const service = principal && agents(reply);
+      if (!principal || !service) return reply;
+      const { amountUsd } = z
+        .object({ amountUsd: z.number().positive().max(1_000_000) })
+        .parse(request.body);
+      return {
+        data: await service.depositToVault(principal, AgentId.parse(request.params).id, amountUsd),
+      };
+    },
+  );
+  app.get(
+    "/v1/agent-vaults/leaderboard",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      const service = principal && agents(reply);
+      if (!principal || !service) return reply;
+      return { data: await service.listVaultLeaderboard() };
     },
   );
   app.get(

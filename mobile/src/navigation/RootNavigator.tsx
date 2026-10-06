@@ -1,32 +1,41 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import {
-  Activity,
+  BarChart3,
   Bot,
+  Compass,
   Cpu,
   Layers,
-  Settings as SettingsIcon,
   TrendingUp,
 } from "lucide-react-native";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { THEME } from "../constants/theme";
 import { AgentsScreen } from "../screens/AgentsScreen";
-import { ClawpumpScreen } from "../screens/ClawpumpScreen";
+import { HubScreen } from "../screens/HubScreen";
 import { IntelligenceScreen } from "../screens/IntelligenceScreen";
 import { MarketsScreen } from "../screens/MarketsScreen";
 import { PortfolioScreen } from "../screens/PortfolioScreen";
-import { SettingsScreen } from "../screens/SettingsScreen";
+import { TerminalScreen } from "../screens/TerminalScreen";
 
 const Tab = createBottomTabNavigator();
 
 export const RootNavigator: React.FC = () => {
+  const insets = useSafeAreaInsets();
+
   return (
     <NavigationContainer>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarStyle: styles.tabBar,
+          tabBarStyle: [
+            styles.tabBar,
+            {
+              height: 54 + Math.max(insets.bottom, 8),
+              paddingBottom: Math.max(insets.bottom, 6),
+            },
+          ],
           tabBarActiveTintColor: THEME.colors.bronze,
           tabBarInactiveTintColor: THEME.colors.textFaint,
           tabBarLabelStyle: styles.tabLabel,
@@ -55,6 +64,17 @@ export const RootNavigator: React.FC = () => {
         />
 
         <Tab.Screen
+          name="Terminal"
+          component={TerminalScreen}
+          options={{
+            tabBarLabel: "Terminal",
+            tabBarIcon: ({ color, size }) => (
+              <BarChart3 color={color} size={size - 2} />
+            ),
+          }}
+        />
+
+        <Tab.Screen
           name="Agents"
           component={AgentsScreen}
           options={{
@@ -77,23 +97,12 @@ export const RootNavigator: React.FC = () => {
         />
 
         <Tab.Screen
-          name="Clawpump"
-          component={ClawpumpScreen}
+          name="Hub"
+          component={HubScreen}
           options={{
-            tabBarLabel: "Clawpump",
+            tabBarLabel: "Hub",
             tabBarIcon: ({ color, size }) => (
-              <Activity color={color} size={size - 2} />
-            ),
-          }}
-        />
-
-        <Tab.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{
-            tabBarLabel: "Config",
-            tabBarIcon: ({ color, size }) => (
-              <SettingsIcon color={color} size={size - 2} />
+              <Compass color={color} size={size - 2} />
             ),
           }}
         />
@@ -107,7 +116,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.line,
-    height: 60,
+    height: 62,
     paddingBottom: 8,
     paddingTop: 6,
   },

@@ -357,6 +357,106 @@ export class SiseraApiService {
     }
   }
 
+  public async emergencyHaltAll(reason = "Global fleet panic triggered from mobile"): Promise<{ haltedAgentsCount: number; canceledOrdersCount: number }> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agents/emergency-halt`;
+      let res = await fetch(url, { method: "POST", headers: this.getHeaders(), body: JSON.stringify({ reason }) });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agents/emergency-halt`;
+        res = await fetch(url, { method: "POST", headers: this.getHeaders(), body: JSON.stringify({ reason }) });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload?.data || { haltedAgentsCount: 0, canceledOrdersCount: 0 };
+      }
+    } catch (err) {
+      console.warn("Emergency halt failed:", err);
+    }
+    return { haltedAgentsCount: 0, canceledOrdersCount: 0 };
+  }
+
+  public async approveAgentOrder(orderId: string): Promise<boolean> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agent-orders/${orderId}/approve`;
+      let res = await fetch(url, { method: "POST", headers: this.getHeaders() });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agent-orders/${orderId}/approve`;
+        res = await fetch(url, { method: "POST", headers: this.getHeaders() });
+      }
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async rejectAgentOrder(orderId: string): Promise<boolean> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agent-orders/${orderId}/reject`;
+      let res = await fetch(url, { method: "POST", headers: this.getHeaders() });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agent-orders/${orderId}/reject`;
+        res = await fetch(url, { method: "POST", headers: this.getHeaders() });
+      }
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async getAgentVault(agentId: string): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agents/${agentId}/vault`;
+      let res = await fetch(url, { headers: this.getHeaders() });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agents/${agentId}/vault`;
+        res = await fetch(url, { headers: this.getHeaders() });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload?.data || null;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  public async depositToVault(agentId: string, amountUsd: number): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agents/${agentId}/vault/deposit`;
+      let res = await fetch(url, { method: "POST", headers: this.getHeaders(), body: JSON.stringify({ amountUsd }) });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agents/${agentId}/vault/deposit`;
+        res = await fetch(url, { method: "POST", headers: this.getHeaders(), body: JSON.stringify({ amountUsd }) });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload?.data || null;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  public async getVaultLeaderboard(): Promise<any[]> {
+    try {
+      let url = `${this.baseUrl}/api/platform/agent-vaults/leaderboard`;
+      let res = await fetch(url, { headers: this.getHeaders() });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/agent-vaults/leaderboard`;
+        res = await fetch(url, { headers: this.getHeaders() });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return Array.isArray(payload?.data) ? payload.data : [];
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  }
+
   // ------------------------------------------------------------- PORTFOLIO
   public async getPortfolio(): Promise<PortfolioSummary> {
     try {
@@ -570,6 +670,85 @@ export class SiseraApiService {
       { name: "NVDA Microstructure", pnlUsd: 19800, returnPct: 19.8, observedAt: "30m ago" },
       { name: "Solana Beta Momentum", pnlUsd: 14200, returnPct: 14.2, observedAt: "2h ago" },
     ];
+  }
+
+  // ------------------------------------------------------------- THEMATIC TAKES
+  public async compileThematicTake(text: string, totalNotionalUsd = 5000): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/takes/compile`;
+      let res = await fetch(url, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ text, totalNotionalUsd }),
+      });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/takes/compile`;
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ text, totalNotionalUsd }),
+        });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data;
+      }
+    } catch (err) {
+      console.warn("Failed to compile thematic take:", err);
+    }
+    return null;
+  }
+
+  public async armThematicTake(take: any, mode: "paper" | "live" = "paper", wallet?: string | null): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/takes/arm`;
+      let res = await fetch(url, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ take, mode, wallet }),
+      });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/takes/arm`;
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ take, mode, wallet }),
+        });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data;
+      }
+    } catch (err) {
+      console.warn("Failed to arm thematic take:", err);
+    }
+    return null;
+  }
+
+  public async tokenizeThematicTake(take: any): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/takes/tokenize`;
+      let res = await fetch(url, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ take }),
+      });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/takes/tokenize`;
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ take }),
+        });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data;
+      }
+    } catch (err) {
+      console.warn("Failed to tokenize thematic take:", err);
+    }
+    return null;
   }
 }
 

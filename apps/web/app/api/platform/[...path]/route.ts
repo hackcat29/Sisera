@@ -11,6 +11,7 @@ const ALLOWED = [
   "agent-market",
   "copilot",
   "policies",
+  "takes",
   "portfolio",
   "risk",
   "agents",
