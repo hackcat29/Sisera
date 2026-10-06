@@ -12,6 +12,7 @@ const ALLOWED = [
   "copilot",
   "policies",
   "takes",
+  "arbitrage",
   "portfolio",
   "risk",
   "agents",

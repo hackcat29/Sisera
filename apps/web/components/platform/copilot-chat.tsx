@@ -312,6 +312,8 @@ function CardView({ card, onPolicy }: { card: Card; onPolicy: () => void }) {
       return <BacktestResultCard data={card.data} />;
     case "take_card":
       return <TakeCard data={card.data} onArmed={onPolicy} />;
+    case "basis_arbitrage":
+      return <BasisArbitrageCard data={card.data} />;
     default:
       return null;
   }
@@ -630,6 +632,136 @@ function TakeCard({ data, onArmed }: { data: unknown; onArmed: () => void }) {
           </Link>
         )}
       </div>
+    </div>
+  );
+}
+
+function BasisArbitrageCard({ data }: { data: unknown }) {
+  const payload = data as {
+    opportunities: Array<{
+      id: string;
+      asset: string;
+      spotVenue: string;
+      perpVenue: string;
+      spotPriceUsd: number;
+      perpPriceUsd: number;
+      basisSpreadBps: number;
+      fundingRateAprPct: number;
+      borrowCostAprPct: number;
+      netYieldAprPct: number;
+      liquidationBufferPct: number;
+      recommendedLeverage: number;
+      status: string;
+    }>;
+    recommended?: {
+      asset: string;
+      netYieldAprPct: number;
+      spotVenue: string;
+      perpVenue: string;
+    };
+    suggestedNotionalUsd: number;
+  };
+
+  const [armingAsset, setArmingAsset] = useState<string | null>(null);
+  const [armedStatus, setArmedStatus] = useState<Record<string, string>>({});
+
+  if (!payload || !payload.opportunities) return null;
+
+  const handleArm = async (asset: string, notional: number) => {
+    setArmingAsset(asset);
+    try {
+      const res = await fetch("/api/platform/arbitrage/arm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ asset, notionalUsd: notional, maxLeverage: 2 }),
+      });
+      if (res.ok) {
+        setArmedStatus((prev) => ({ ...prev, [asset]: "Armed (POLICY_AUTO Level 3)" }));
+      } else {
+        setArmedStatus((prev) => ({ ...prev, [asset]: "Arming failed" }));
+      }
+    } catch {
+      setArmedStatus((prev) => ({ ...prev, [asset]: "Arming error" }));
+    } finally {
+      setArmingAsset(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border border-emerald-500/40 bg-surface/90 p-4 font-mono text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2">
+        <div className="flex items-center gap-2">
+          <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 text-[10px] uppercase font-bold border border-emerald-500/30">
+            Delta-Neutral Cash & Carry
+          </span>
+          <span className="text-slate-400 text-[11px]">Zero Directional Beta</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-500">Suggested Capital:</span>
+          <span className="text-emerald-300 font-bold">
+            ${payload.suggestedNotionalUsd?.toLocaleString() ?? "10,000"}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="data-label text-emerald-300">Live Cross-Venue Funding Rate Opportunities</p>
+        <div className="overflow-x-auto border border-line">
+          <table className="w-full text-left text-[11px]">
+            <thead className="border-b border-line bg-surface/40 text-[10px] uppercase text-slate-500">
+              <tr>
+                <th className="px-2.5 py-1.5 font-medium">Asset</th>
+                <th className="px-2.5 py-1.5 font-medium">Legs</th>
+                <th className="px-2.5 py-1.5 font-medium">Perp Funding</th>
+                <th className="px-2.5 py-1.5 font-medium">Borrow Cost</th>
+                <th className="px-2.5 py-1.5 font-medium">Net APR</th>
+                <th className="px-2.5 py-1.5 font-medium">Liq. Buffer</th>
+                <th className="px-2.5 py-1.5 font-medium">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/40 text-slate-300">
+              {payload.opportunities.map((opp) => (
+                <tr key={opp.id} className="hover:bg-surface/30">
+                  <td className="px-2.5 py-1.5 font-bold text-slate-100">{opp.asset}</td>
+                  <td className="px-2.5 py-1.5 text-[10px] text-slate-400">
+                    +{opp.spotVenue} / -{opp.perpVenue}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-emerald-400">
+                    +{opp.fundingRateAprPct.toFixed(1)}%
+                  </td>
+                  <td className="px-2.5 py-1.5 text-rose-400">
+                    -{opp.borrowCostAprPct.toFixed(1)}%
+                  </td>
+                  <td className="px-2.5 py-1.5 font-bold text-emerald-300">
+                    +{opp.netYieldAprPct.toFixed(1)}%
+                  </td>
+                  <td className="px-2.5 py-1.5 text-slate-400">{opp.liquidationBufferPct}%</td>
+                  <td className="px-2.5 py-1.5">
+                    {armedStatus[opp.asset] ? (
+                      <span className="text-[10px] text-emerald-400 font-bold">
+                        {armedStatus[opp.asset]}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 text-[10px] font-bold"
+                        disabled={armingAsset === opp.asset}
+                        onClick={() => handleArm(opp.asset, payload.suggestedNotionalUsd || 10_000)}
+                      >
+                        {armingAsset === opp.asset ? "Deploying..." : "⚡ Deploy Harvester"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-500">
+        Pre-trade risk engine continuously guards margin ratios across Hyperliquid and Solana
+        liquidity pools.
+      </p>
     </div>
   );
 }

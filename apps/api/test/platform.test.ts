@@ -267,4 +267,41 @@ describe("platform routes", () => {
     expect(tokenization.tokenSymbol).toMatch(/^TKE/);
     await app.close();
   });
+
+  it("lists basis arbitrage opportunities and arms delta-neutral harvesters", async () => {
+    const app = await buildApi(
+      readConfig({
+        NODE_ENV: "test",
+        LOG_LEVEL: "silent",
+        SISERA_ALLOW_DEV_AUTH: "true",
+      }),
+    );
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/v1/arbitrage/basis",
+      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
+    });
+    expect(listRes.statusCode).toBe(200);
+    const opps = listRes.json().data;
+    expect(opps.length).toBeGreaterThanOrEqual(2);
+    expect(opps[0].netYieldAprPct).toBeGreaterThan(10);
+
+    const armRes = await app.inject({
+      method: "POST",
+      url: "/v1/arbitrage/arm",
+      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
+      payload: {
+        asset: "SOL",
+        notionalUsd: 5000,
+        maxLeverage: 2,
+      },
+    });
+    expect(armRes.statusCode).toBe(201);
+    const armed = armRes.json().data;
+    expect(armed.asset).toBe("SOL");
+    expect(armed.status).toBe("armed");
+    expect(armed.notionalUsd).toBe(5000);
+    expect(armed.estimatedDailyYieldUsd).toBeGreaterThan(0);
+    await app.close();
+  });
 });

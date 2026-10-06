@@ -2,7 +2,11 @@ import { StrategyRules, backtestGate, runBacktest } from "@sisera/agent-runtime"
 import { type ChatMessage, type OpenRouterChat, assessFromEvidence } from "@sisera/copilot";
 import { saveCopilotMessages } from "@sisera/db";
 import type { MarketEvent } from "@sisera/intelligence";
-import { ThematicTake, synthesizeThematicTake } from "@sisera/policy";
+import {
+  ThematicTake,
+  calculateBasisArbitrageOpportunities,
+  synthesizeThematicTake,
+} from "@sisera/policy";
 import type { AgentMarketService } from "./agent-market.js";
 import type { AssetCatalog, CatalogAsset } from "./catalog.js";
 import type { HistoryService } from "./history.js";
@@ -15,6 +19,7 @@ export type CopilotIntent =
   | "policy"
   | "backtest"
   | "thematic_take"
+  | "basis_arbitrage"
   | "why_moving"
   | "what_changed"
   | "exposure"
@@ -35,7 +40,8 @@ export type CopilotCard =
   | { type: "policy_draft"; data: unknown }
   | { type: "asset"; data: unknown }
   | { type: "backtest_result"; data: unknown }
-  | { type: "take_card"; data: unknown };
+  | { type: "take_card"; data: unknown }
+  | { type: "basis_arbitrage"; data: unknown };
 
 export type CopilotReply = {
   intent: CopilotIntent;
@@ -77,6 +83,12 @@ export function classifyIntent(text: string): CopilotIntent {
       /\b(?:sharpe|performance|returns|backtest)\b/.test(lower))
   )
     return "backtest";
+  if (
+    /\b(?:basis arbitrage|funding arbitrage|funding rate|funding harvest|cash and carry|delta neutral|carry trade|funding yield|basis spread)\b/.test(
+      lower,
+    )
+  )
+    return "basis_arbitrage";
   if (/\b(clawpump|agent tokens?|agent market)\b/.test(lower)) return "agent_market";
   if (
     /\bwhat (?:has )?changed\b|\bwhat'?s new\b|\bin the last (?:hour|\d+ ?(?:minutes|hours))\b/.test(
@@ -160,6 +172,7 @@ export class CopilotService {
       policy: () => this.policy(principal, input.message, contextAsset, input.mode ?? "paper"),
       backtest: () => this.backtest(input.message, contextAsset),
       thematic_take: () => this.thematicTake(principal, input.message, input.mode ?? "paper"),
+      basis_arbitrage: () => this.basisArbitrage(input.message),
       why_moving: () => this.whyMoving(contextAsset),
       what_changed: () => this.whatChanged(principal.subject, input.message, contextAsset),
       exposure: () => this.exposure(principal.subject, input.message),
@@ -839,6 +852,44 @@ export class CopilotService {
         },
       ],
       sources: ["sec-edgar", "pyth-hermes", "prestocks-marks", "sisera-thematic-engine"],
+      narratable: true,
+    };
+  }
+
+  private async basisArbitrage(message: string): Promise<Draft> {
+    const opportunities = calculateBasisArbitrageOpportunities();
+    const top = opportunities[0];
+    const amountMatch = message.match(/\$([0-9,]+(?:\.[0-9]+)?)/);
+    const notionalUsd = amountMatch?.[1] ? Number(amountMatch[1].replace(/,/g, "")) : 10_000;
+
+    const lines = [
+      "Institutional Basis Arbitrage & Funding Harvesting Screener:",
+      "",
+      ...opportunities.map(
+        (opp) =>
+          `• ${opp.asset}: +${opp.netYieldAprPct.toFixed(1)}% Net APR (${opp.fundingRateAprPct.toFixed(1)}% Perp Funding − ${opp.borrowCostAprPct.toFixed(1)}% Borrow Cost) | Spread: ${opp.basisSpreadBps.toFixed(1)} bps | Long ${opp.spotVenue} Spot vs Short ${opp.perpVenue} Perp | Liq. Buffer: ${opp.liquidationBufferPct}% | Status: ${opp.status.toUpperCase()}`,
+      ),
+      "",
+      `Top Recommended Strategy: Delta-Neutral ${top?.asset ?? "SOL"} Cash-and-Carry`,
+      `• Projected 30-day cashflow on $${notionalUsd.toLocaleString()}: ~$${Math.round((notionalUsd * ((top?.netYieldAprPct ?? 25) / 100)) / 12).toLocaleString()} USDC`,
+      "• Directional Market Beta: 0.0 (Pure market-neutral delta)",
+      "• Pre-Trade Guard: Automated rebalance trigger if liquidation buffer drops below 20%",
+      "Action: Tap 'Deploy Harvester' on the opportunity card to arm a Level 3 POLICY_AUTO agent.",
+    ];
+
+    return {
+      text: lines.join("\n"),
+      cards: [
+        {
+          type: "basis_arbitrage",
+          data: {
+            opportunities,
+            recommended: top,
+            suggestedNotionalUsd: notionalUsd,
+          },
+        },
+      ],
+      sources: ["hyperliquid-perps", "solana-jupiter", "binance-spot", "kamino-money-market"],
       narratable: true,
     };
   }

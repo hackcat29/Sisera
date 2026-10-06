@@ -152,4 +152,38 @@ describe("governance", () => {
     );
     expect(decision).toMatchObject({ action: "exit", exitReason: "trailing_stop" });
   });
+
+  it("triggers stepped profit ladder in evaluateTick and scales out in backtest", () => {
+    const ladderRules = StrategyRules.parse({
+      ...rules,
+      takeProfitPct: 50,
+      profitLadder: [
+        { gainPct: 5, closeRatio: 0.33 },
+        { gainPct: 10, closeRatio: 0.33 },
+      ],
+    });
+
+    // Entry price 100, current price 106 (+6% gain, triggers rung 1)
+    const decision = evaluateTick(
+      ladderRules,
+      { candles: series(80), price: 106 },
+      { quantity: 1, entryPrice: 100, openedAt: "", barsHeld: 2 },
+    );
+    expect(decision).toMatchObject({ action: "exit", exitReason: "profit_ladder" });
+    expect(decision.reasons[0]).toContain("Profit ladder step 1 (+5%) reached");
+
+    // If rung 1 was already executed, rung 2 should NOT trigger at 106
+    const decisionRung1Done = evaluateTick(
+      ladderRules,
+      { candles: series(80), price: 106 },
+      { quantity: 0.67, entryPrice: 100, openedAt: "", barsHeld: 3, executedLadderIndices: [0] },
+    );
+    expect(decisionRung1Done.action).toBe("hold");
+
+    // Backtest with profit ladder
+    const candles = series(120);
+    const result = runBacktest(candles, ladderRules, config);
+    expect(result.bars).toBe(candles.length);
+    expect(result.metrics.tradeCount).toBeGreaterThanOrEqual(1);
+  });
 });

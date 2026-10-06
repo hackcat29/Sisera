@@ -44,6 +44,10 @@ import {
 } from "@sisera/db";
 import type { Candle, MarketSnapshot, UserRole } from "@sisera/domain";
 import { roleCan } from "@sisera/domain";
+import {
+  type BasisArbitrageOpportunity,
+  calculateBasisArbitrageOpportunities,
+} from "@sisera/policy";
 import type { FastifyBaseLogger } from "fastify";
 import { AgentDraftInput, StoredAgentPolicy, compileAgentDraft } from "../agent-governance.js";
 import type { HeliusClient } from "../helius.js";
@@ -715,6 +719,69 @@ export class AgentService {
         vaultDepositUsd: 98_000,
       },
     ];
+  }
+
+  async listBasisArbitrageOpportunities(): Promise<BasisArbitrageOpportunity[]> {
+    return calculateBasisArbitrageOpportunities();
+  }
+
+  async armBasisHarvester(
+    principal: Principal,
+    input: {
+      asset: string;
+      notionalUsd: number;
+      maxLeverage?: number;
+    },
+  ) {
+    if (input.notionalUsd <= 0 || input.notionalUsd > 1_000_000) {
+      throw new AgentError("Notional must be between $1 and $1,000,000", 400);
+    }
+    const opportunities = calculateBasisArbitrageOpportunities();
+    const opp = opportunities.find((o) => o.asset.toLowerCase() === input.asset.toLowerCase());
+    if (!opp) {
+      throw new AgentError(
+        `No active basis arbitrage opportunity found for asset ${input.asset}`,
+        404,
+      );
+    }
+    const agentDraft = {
+      name: `Delta-Neutral Basis Harvester (${opp.asset})`,
+      description: `Automated cash-and-carry funding rate harvester exploiting spread between ${opp.spotVenue} and ${opp.perpVenue} with ${opp.netYieldAprPct.toFixed(1)}% net APR.`,
+      universe: [`hyperliquid:${opp.asset}-USD:perpetual`, `solana:${opp.asset}/USDC:spot`],
+      timeframe: "1h" as const,
+      factors: ["funding_rate_disparity", "basis_spread_convergence"],
+      capitalLimitUsd: input.notionalUsd,
+      maxTradeNotionalUsd: input.notionalUsd,
+      maxDailyDrawdownPct: 3.5,
+      maxOpenPositions: 2,
+      stopLossPct: 4.0,
+      takeProfitPct: 35.0,
+      maxSlippageBps: 20,
+      rules: {
+        entry: [
+          { type: "funding_rate_above" as const, aprPct: 10 },
+          { type: "basis_spread_above" as const, bps: 10 },
+        ],
+        exit: [{ type: "funding_rate_above" as const, aprPct: 3 }],
+      },
+    };
+    const created = await this.create(principal, agentDraft);
+    const estimatedDailyYieldUsd = (input.notionalUsd * (opp.netYieldAprPct / 100)) / 365;
+    return {
+      agentId: created?.id ?? `harvester-${Date.now()}`,
+      name: agentDraft.name,
+      stage: "draft" as Stage,
+      autonomy: "policy_auto" as AutonomyLevel,
+      asset: opp.asset,
+      netYieldAprPct: opp.netYieldAprPct,
+      notionalUsd: input.notionalUsd,
+      estimatedDailyYieldUsd,
+      spotVenue: opp.spotVenue,
+      perpVenue: opp.perpVenue,
+      liquidationBufferPct: opp.liquidationBufferPct,
+      status: "armed",
+      createdAt: new Date().toISOString(),
+    };
   }
 
   listOrders(principal: Principal) {

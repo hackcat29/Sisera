@@ -750,6 +750,80 @@ export class SiseraApiService {
     }
     return null;
   }
+
+  // ------------------------------------------------------------- BASIS ARBITRAGE & HARVESTING
+  public async fetchBasisArbitrage(): Promise<any[]> {
+    try {
+      let url = `${this.baseUrl}/api/platform/arbitrage/basis`;
+      let res = await fetch(url, { headers: this.getHeaders() });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/arbitrage/basis`;
+        res = await fetch(url, { headers: this.getHeaders() });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data ?? [];
+      }
+    } catch (err) {
+      console.warn("Failed to fetch basis arbitrage:", err);
+    }
+    return [
+      {
+        id: "basis:sol-hl-jupiter",
+        asset: "SOL",
+        spotVenue: "solana_jupiter",
+        perpVenue: "hyperliquid",
+        spotPriceUsd: 148.25,
+        perpPriceUsd: 148.65,
+        basisSpreadBps: 27.0,
+        fundingRateAprPct: 30.66,
+        borrowCostAprPct: 4.8,
+        netYieldAprPct: 25.86,
+        liquidationBufferPct: 35.0,
+        status: "optimal",
+      },
+      {
+        id: "basis:nvdax-hl-solana",
+        asset: "NVDAx",
+        spotVenue: "solana_jupiter",
+        perpVenue: "hyperliquid",
+        spotPriceUsd: 128.4,
+        perpPriceUsd: 128.85,
+        basisSpreadBps: 35.0,
+        fundingRateAprPct: 36.79,
+        borrowCostAprPct: 6.2,
+        netYieldAprPct: 30.59,
+        liquidationBufferPct: 28.0,
+        status: "optimal",
+      },
+    ];
+  }
+
+  public async armBasisHarvester(asset: string, notionalUsd: number, maxLeverage = 2): Promise<any> {
+    try {
+      let url = `${this.baseUrl}/api/platform/arbitrage/arm`;
+      let res = await fetch(url, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ asset, notionalUsd, maxLeverage }),
+      });
+      if (!res.ok) {
+        url = `${this.baseUrl}/v1/arbitrage/arm`;
+        res = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: JSON.stringify({ asset, notionalUsd, maxLeverage }),
+        });
+      }
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data;
+      }
+    } catch (err) {
+      console.warn("Failed to arm basis harvester:", err);
+    }
+    return null;
+  }
 }
 
 export const apiService = SiseraApiService.getInstance();

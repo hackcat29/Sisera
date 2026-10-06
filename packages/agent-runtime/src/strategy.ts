@@ -8,6 +8,14 @@ import {
 } from "@sisera/policy";
 import { z } from "zod";
 
+export const ProfitLadderStep = z
+  .object({
+    gainPct: z.number().positive().max(10_000),
+    closeRatio: z.number().positive().max(1),
+  })
+  .strict();
+export type ProfitLadderStep = z.infer<typeof ProfitLadderStep>;
+
 /** Executable strategy rules. Entry conditions must all pass; any exit condition closes. */
 export const StrategyRules = z
   .object({
@@ -18,6 +26,7 @@ export const StrategyRules = z
     stopLossPct: z.number().positive().max(90),
     takeProfitPct: z.number().positive().max(1000),
     trailingStopPct: z.number().positive().max(90).optional(),
+    profitLadder: z.array(ProfitLadderStep).max(10).optional(),
     maxHoldingBars: z.number().int().positive().max(10_000).optional(),
     cooldownBars: z.number().int().min(0).max(1000).default(0),
   })
@@ -61,6 +70,7 @@ export type BacktestTrade = {
     | "stop_loss"
     | "take_profit"
     | "trailing_stop"
+    | "profit_ladder"
     | "exit_rule"
     | "max_holding"
     | "end_of_data";
@@ -135,6 +145,7 @@ export function runBacktest(
     entryPrice: number;
     quantity: number;
     peakPrice?: number;
+    executedLadderIndices?: Set<number>;
   } | null = null;
   let cooldownUntil = -1;
   let barsInMarket = 0;
@@ -170,6 +181,44 @@ export function runBacktest(
       const trailingStop = rules.trailingStopPct
         ? position.peakPrice * (1 - rules.trailingStopPct / 100)
         : null;
+      let ladderClosed = false;
+      if (rules.profitLadder && rules.profitLadder.length > 0 && index > position.entryIndex) {
+        const sortedLadder = [...rules.profitLadder].sort((a, b) => a.gainPct - b.gainPct);
+        for (let sIdx = 0; sIdx < sortedLadder.length; sIdx++) {
+          const step = sortedLadder[sIdx];
+          if (!step) continue;
+          if (position.executedLadderIndices?.has(sIdx)) continue;
+          const target = position.entryPrice * (1 + step.gainPct / 100);
+          if (Number(candle.high) >= target) {
+            if (!position.executedLadderIndices) position.executedLadderIndices = new Set();
+            position.executedLadderIndices.add(sIdx);
+            const trimQty = position.quantity * step.closeRatio;
+            if (trimQty > 0) {
+              const exitPrice = Math.max(target, Number(candle.open)) * (1 - cost);
+              const proceeds = trimQty * exitPrice;
+              const invested = trimQty * position.entryPrice;
+              cash += proceeds;
+              trades.push({
+                entryTime: candles[position.entryIndex]?.time ?? 0,
+                exitTime: candle.time,
+                entryPrice: position.entryPrice,
+                exitPrice,
+                returnPct: (exitPrice / position.entryPrice - 1) * 100,
+                pnlUsd: proceeds - invested,
+                exitReason: "profit_ladder",
+              });
+              position.quantity -= trimQty;
+              if (position.quantity <= 1e-8) {
+                position = null;
+                cooldownUntil = index + rules.cooldownBars;
+                ladderClosed = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (ladderClosed || !position) continue;
       if (index > position.entryIndex && Number(candle.low) <= stop)
         closeTrade(index, Math.min(stop, Number(candle.open)), "stop_loss");
       else if (
@@ -628,6 +677,7 @@ export type TickPosition = {
   openedAt: string;
   barsHeld: number;
   highestPrice?: number;
+  executedLadderIndices?: number[];
 } | null;
 
 export type TickDecision = {
@@ -679,6 +729,30 @@ export function evaluateTick(
         entryResults: [],
         exitResults: exits.results,
       };
+    if (rules.profitLadder && rules.profitLadder.length > 0) {
+      const executed = new Set(position.executedLadderIndices ?? []);
+      const sortedLadder = [...rules.profitLadder].sort((a, b) => a.gainPct - b.gainPct);
+      const nextStepIndex = sortedLadder.findIndex(
+        (step, idx) =>
+          !executed.has(idx) &&
+          Number.isFinite(price) &&
+          price >= position.entryPrice * (1 + step.gainPct / 100),
+      );
+      if (nextStepIndex !== -1) {
+        const step = sortedLadder[nextStepIndex];
+        if (step) {
+          return {
+            action: "exit",
+            exitReason: "profit_ladder",
+            reasons: [
+              `Profit ladder step ${nextStepIndex + 1} (+${step.gainPct}%) reached; trimming ${(step.closeRatio * 100).toFixed(0)}% of position.`,
+            ],
+            entryResults: [],
+            exitResults: exits.results,
+          };
+        }
+      }
+    }
     if (rules.maxHoldingBars && position.barsHeld >= rules.maxHoldingBars)
       return {
         action: "exit",

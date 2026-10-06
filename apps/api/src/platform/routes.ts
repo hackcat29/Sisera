@@ -1,5 +1,10 @@
 import { getRiskPreferences, saveRiskPreferences } from "@sisera/db";
-import { ThematicTake, calculateTakeStress, synthesizeThematicTake } from "@sisera/policy";
+import {
+  ThematicTake,
+  calculateBasisArbitrageOpportunities,
+  calculateTakeStress,
+  synthesizeThematicTake,
+} from "@sisera/policy";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requirePermission } from "../auth.js";
@@ -617,6 +622,67 @@ export function registerPlatformRoutes(
       };
 
       return { data: tokenizationSpec };
+    },
+  );
+
+  // ------------------------------------------------------------------ basis arbitrage
+  app.get(
+    "/v1/arbitrage/basis",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
+    },
+    async () => {
+      const opportunities = services.agents
+        ? await services.agents.listBasisArbitrageOpportunities()
+        : calculateBasisArbitrageOpportunities();
+      return { data: opportunities };
+    },
+  );
+
+  app.post(
+    "/v1/arbitrage/arm",
+    {
+      preHandler: requirePermission("agent:manage"),
+      config: { rateLimit: { max: 15, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      const input = z
+        .object({
+          asset: z.string().trim().min(2).max(16),
+          notionalUsd: z.number().positive().max(1_000_000).default(5000),
+          maxLeverage: z.number().positive().max(5).default(2),
+        })
+        .parse(request.body);
+      if (services.agents) {
+        const armed = await services.agents.armBasisHarvester(principal, input);
+        return reply.code(201).send({ data: armed });
+      }
+      const opportunities = calculateBasisArbitrageOpportunities();
+      const opp =
+        opportunities.find((o) => o.asset.toLowerCase() === input.asset.toLowerCase()) ??
+        opportunities[0];
+      const estimatedDailyYieldUsd =
+        (input.notionalUsd * ((opp?.netYieldAprPct ?? 25) / 100)) / 365;
+      return reply.code(201).send({
+        data: {
+          agentId: `harvester-${Date.now()}`,
+          name: `Delta-Neutral Basis Harvester (${opp?.asset ?? input.asset})`,
+          stage: "draft",
+          autonomy: "policy_auto",
+          asset: opp?.asset ?? input.asset,
+          netYieldAprPct: opp?.netYieldAprPct ?? 25,
+          notionalUsd: input.notionalUsd,
+          estimatedDailyYieldUsd,
+          spotVenue: opp?.spotVenue ?? "solana_jupiter",
+          perpVenue: opp?.perpVenue ?? "hyperliquid",
+          liquidationBufferPct: opp?.liquidationBufferPct ?? 35,
+          status: "armed",
+          createdAt: new Date().toISOString(),
+        },
+      });
     },
   );
 

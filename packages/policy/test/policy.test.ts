@@ -2,6 +2,7 @@ import type { Candle } from "@sisera/domain";
 import { describe, expect, it } from "vitest";
 import {
   type InstrumentRef,
+  calculateBasisArbitrageOpportunities,
   compilePolicyText,
   evaluateCondition,
   evaluatePolicy,
@@ -218,5 +219,28 @@ describe("policy evaluation", () => {
     expect(take.metrics.effectivePositions).toBeGreaterThan(1.5);
     expect(take.autopilot).toBe(true);
     expect(take.riskGuardrails.secFilingAware).toBe(true);
+  });
+
+  it("evaluates funding rate and basis spread conditions", () => {
+    const fundingCondition = { type: "funding_rate_above" as const, aprPct: 20 };
+    expect(evaluateCondition(fundingCondition, { fundingRateAprPct: 25.5 }).passed).toBe(true);
+    expect(evaluateCondition(fundingCondition, { fundingRateAprPct: 15.0 }).passed).toBe(false);
+    expect(evaluateCondition(fundingCondition, {}).passed).toBe(false);
+
+    const spreadCondition = { type: "basis_spread_above" as const, bps: 25 };
+    expect(evaluateCondition(spreadCondition, { basisSpreadBps: 27.5 }).passed).toBe(true);
+    expect(evaluateCondition(spreadCondition, { basisSpreadBps: 15.0 }).passed).toBe(false);
+    expect(evaluateCondition(spreadCondition, {}).passed).toBe(false);
+  });
+
+  it("calculates active cross-venue basis arbitrage opportunities", () => {
+    const opportunities = calculateBasisArbitrageOpportunities();
+    expect(opportunities.length).toBeGreaterThanOrEqual(3);
+    const sol = opportunities.find((o) => o.asset === "SOL");
+    expect(sol).toBeDefined();
+    expect(sol?.netYieldAprPct).toBeGreaterThan(15);
+    expect(sol?.spotVenue).toBe("solana_jupiter");
+    expect(sol?.perpVenue).toBe("hyperliquid");
+    expect(sol?.status).toBe("optimal");
   });
 });

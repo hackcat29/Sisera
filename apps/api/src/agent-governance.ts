@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { Condition } from "@sisera/policy";
 import { z } from "zod";
 
+export const ProfitLadderStepInput = z
+  .object({
+    gainPct: z.coerce.number().positive().max(10_000),
+    closeRatio: z.coerce.number().positive().max(1),
+  })
+  .strict();
+
 export const AgentRulesInput = z
   .object({
     entry: z.array(Condition).min(1).max(10),
@@ -9,6 +16,7 @@ export const AgentRulesInput = z
     maxHoldingBars: z.coerce.number().int().positive().max(10_000).optional(),
     cooldownBars: z.coerce.number().int().min(0).max(1000).default(0),
     trailingStopPct: z.coerce.number().positive().max(90).optional(),
+    profitLadder: z.array(ProfitLadderStepInput).max(10).optional(),
   })
   .strict();
 
