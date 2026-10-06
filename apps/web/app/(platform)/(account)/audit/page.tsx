@@ -200,7 +200,7 @@ export default async function ActivityPage() {
             <BridgeActivity />
             <section className="mt-4 border border-line bg-panel">
               <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-white">
-                Jupiter prediction orders
+                Panta prediction orders
               </h2>
               {predictionOrders?.length ? (
                 <div className="divide-y divide-line">

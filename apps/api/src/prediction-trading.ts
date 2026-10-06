@@ -3,14 +3,14 @@ import { claimPredictionOrder, finishPredictionOrder, savePredictionOrder } from
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import type { ApiConfig } from "./config.js";
 import type { HeliusClient } from "./helius.js";
-import { JupiterPredictionTradingClient } from "./jupiter-prediction.js";
+import { PantaPredictionTradingClient } from "./panta-prediction.js";
 import { TradeRejection, verifySignedSwap } from "./solana-trading.js";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export class PredictionTradingService {
   private readonly privy: PrivyClient | null;
-  private readonly jupiter: JupiterPredictionTradingClient;
+  private readonly panta: PantaPredictionTradingClient;
   private readonly connection: Connection;
 
   constructor(
@@ -22,9 +22,12 @@ export class PredictionTradingService {
       config.PRIVY_APP_ID && config.PRIVY_APP_SECRET
         ? new PrivyClient(config.PRIVY_APP_ID, config.PRIVY_APP_SECRET)
         : null;
-    this.jupiter = new JupiterPredictionTradingClient(
-      config.JUPITER_PREDICTION_BASE_URL,
-      config.JUPITER_API_KEY,
+    this.panta = new PantaPredictionTradingClient(
+      config.PANTA_API_BASE_URL,
+      config.PANTA_API_KEY,
+      globalThis.fetch,
+      rpcUrl,
+      config.PANTA_PROGRAM_ID,
     );
     this.connection = new Connection(rpcUrl, "confirmed");
   }
@@ -58,7 +61,7 @@ export class PredictionTradingService {
       throw new TradeRejection("Your wallet has insufficient USDC.");
     if (BigInt(solLamports) < 1_000_000n)
       throw new TradeRejection("Add a little SOL for network fees.");
-    const prepared = await this.jupiter.prepare({
+    const prepared = await this.panta.prepare({
       marketId: input.marketId,
       wallet: input.wallet,
       isYes: input.outcome === "yes",
@@ -134,6 +137,6 @@ export class PredictionTradingService {
   }
 
   async orderStatus(orderPubkey: string) {
-    return this.jupiter.orderStatus(orderPubkey);
+    return this.panta.orderStatus(orderPubkey);
   }
 }

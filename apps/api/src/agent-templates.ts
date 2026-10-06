@@ -67,8 +67,8 @@ export const agentTemplates = [
   {
     id: "prediction-evidence-v1",
     name: "Prediction Evidence",
-    description: "Reviews Jupiter YES/NO prices, time to resolution and stated resolution sources.",
-    universe: ["jupiter-prediction:*"],
+    description: "Reviews Panta YES/NO prices, time to resolution and stated resolution sources.",
+    universe: ["panta-prediction:*", "jupiter-prediction:*"],
     timeframe: "event",
     factors: ["outcome price gap", "time to close", "resolution criteria review"],
     risk: "Prices are not calibrated probabilities; no trade proposal without verified resolution rules.",

@@ -33,6 +33,12 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+artifacts/
+
+# Mobile (React Native / Expo)
+mobile/.expo/
+mobile/web-build/
+mobile/dist/
 
 # Local runtime state (SQLite files on dev boot; Postgres in prod)
 var/

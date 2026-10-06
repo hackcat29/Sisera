@@ -129,7 +129,7 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
 
   return (
     <div className="mt-4 border-t border-line pt-3 text-xs">
-      <p className="font-semibold text-slate-200">Trade with Jupiter · {mode}</p>
+      <p className="font-semibold text-slate-200">Trade with Panta · {mode}</p>
       <div className="mt-2 grid grid-cols-2 gap-1">
         {(["paper", "live"] as const).map((option) => (
           <button

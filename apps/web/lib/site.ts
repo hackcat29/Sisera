@@ -12,7 +12,7 @@ export const site = {
   /** Official profiles for Organization.sameAs. Add each account once it is live. */
   sameAs: [] as string[],
   /** Market data providers Sisera reads from; shown as plain text, never as partner logos. */
-  dataSources: ["Pyth", "Jupiter", "CoinMarketCap", "Hyperliquid", "Binance", "Helius"],
+  dataSources: ["Pyth", "Panta", "Jupiter", "CoinMarketCap", "Hyperliquid", "Binance", "Helius"],
 };
 
 /** Public pages, in sitemap order. Market pages are public too and are listed separately. */

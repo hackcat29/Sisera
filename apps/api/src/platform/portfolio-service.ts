@@ -165,7 +165,7 @@ export class PortfolioService {
           : null;
         return {
           priceUsd: quote ? String(quote.price) : null,
-          source: "jupiter-prediction",
+          source: "panta-prediction",
           observedAt: quote?.observedAt ?? null,
           underlying: `prediction:${marketId}`,
           sector: "Prediction markets",

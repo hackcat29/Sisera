@@ -53,6 +53,7 @@ import {
   HyperliquidPerpProvider,
   JupiterPredictionProvider,
   MarketDataUnavailableError,
+  PantaPredictionProvider,
   PreStocksProvider,
   PythCoreProvider,
 } from "@sisera/market-data";
@@ -75,10 +76,13 @@ import { GeckoTerminalCandles } from "./geckoterminal.js";
 import { parseHeliusWebhook, validWebhookSecret } from "./helius-webhook.js";
 import { HeliusClient } from "./helius.js";
 import { HyperEvmWalletClient } from "./hyperevm.js";
-import { JupiterPredictionTradingClient } from "./jupiter-prediction.js";
 import { JupiterQuoteClient } from "./jupiter.js";
 import { LivePriceHub } from "./live-prices.js";
 import { PaperOrderRejection, settleMarketPaperOrder } from "./market-paper.js";
+import {
+  JupiterPredictionTradingClient,
+  PantaPredictionTradingClient,
+} from "./panta-prediction.js";
 import { AgentMarketService } from "./platform/agent-market.js";
 import { AgentError, AgentService } from "./platform/agent-service.js";
 import { AssetCatalog } from "./platform/catalog.js";
@@ -230,7 +234,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       config.DATABASE_URL &&
       config.PRIVY_APP_ID &&
       config.PRIVY_APP_SECRET &&
-      config.JUPITER_API_KEY &&
       config.HELIUS_API_KEY,
   );
   const binanceTrading = new BinanceTradingClient();
@@ -244,9 +247,12 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     discordChannelIds: config.SISERA_DISCORD_CHANNEL_IDS,
   });
   const predictionTrading = new PredictionTradingService(config, helius, solanaRpcUrl);
-  const predictionPaperClient = new JupiterPredictionTradingClient(
-    config.JUPITER_PREDICTION_BASE_URL,
-    config.JUPITER_API_KEY,
+  const predictionPaperClient = new PantaPredictionTradingClient(
+    config.PANTA_API_BASE_URL,
+    config.PANTA_API_KEY,
+    globalThis.fetch,
+    solanaRpcUrl,
+    config.PANTA_PROGRAM_ID,
   );
   const predictionPaperQuote =
     dependencies.predictionPaperQuote ??
@@ -285,7 +291,13 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   const marketProvider = (venue: string) => (venue === "hyperliquid" ? hyperliquid : marketData);
   const predictions =
     dependencies.predictions ??
-    new JupiterPredictionProvider(config.JUPITER_PREDICTION_BASE_URL, config.JUPITER_API_KEY);
+    new PantaPredictionProvider(
+      config.PANTA_API_BASE_URL,
+      config.PANTA_API_KEY,
+      globalThis.fetch,
+      solanaRpcUrl,
+      config.PANTA_PROGRAM_ID,
+    );
   const referenceMarkets = new CoinGeckoReferenceProvider();
   const requestStarts = new WeakMap<object, number>();
 
@@ -1292,7 +1304,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           data: {
             templateId: id,
             market: market.title,
-            source: "jupiter-prediction",
+            source: "panta-prediction",
             observedAt: market.quality.observedAt,
             stance: "abstain",
             rationale: [
