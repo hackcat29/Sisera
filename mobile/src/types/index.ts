@@ -127,3 +127,44 @@ export interface CopilotMessage {
     sources: string[];
   };
 }
+
+export interface PredictionMarket {
+  id: string;
+  title: string;
+  category: string;
+  yesProbabilityPct: number;
+  noProbabilityPct: number;
+  volumeUsd: number;
+  liquidityUsd: number;
+  closesAt: string;
+  resolved: boolean;
+  outcome?: "YES" | "NO";
+}
+
+export interface SocialPost {
+  id: string;
+  platform: "X" | "TELEGRAM" | "DISCORD" | "REDDIT";
+  author: string;
+  content: string;
+  timestamp: string;
+  sentiment: "BULLISH" | "BEARISH" | "NEUTRAL";
+  symbol?: string;
+  url?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  eventType: "TRADE_EXECUTION" | "POLICY_TRIGGER" | "AGENT_PROMOTION" | "CIRCUIT_BREAKER" | "MANDATE_CHECK";
+  title: string;
+  detail: string;
+  timestamp: string;
+  status: "CONFIRMED" | "BLOCKED" | "EVALUATED";
+  txHash?: string;
+}
+
+export interface OrderBookLevel {
+  priceUsd: number;
+  size: number;
+  total: number;
+}
+
