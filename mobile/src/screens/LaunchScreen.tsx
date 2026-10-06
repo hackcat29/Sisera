@@ -11,10 +11,24 @@ import {
 import { TerminalHeader } from "../components/TerminalHeader";
 import { THEME } from "../constants/theme";
 
-export const LaunchScreen: React.FC = () => {
-  const [name, setName] = useState("Alpha Trend Sentinel");
-  const [symbol, setSymbol] = useState("ATS");
-  const [pairedStock, setPairedStock] = useState<"NVDAx" | "AAPLx" | "TSLAx" | "SOL">("NVDAx");
+interface LaunchScreenProps {
+  initialSymbol?: string;
+  initialName?: string;
+  initialPairedStock?: "NVDAx" | "AAPLx" | "TSLAx" | "SOL";
+  onClose?: () => void;
+}
+
+export const LaunchScreen: React.FC<LaunchScreenProps> = ({
+  initialSymbol = "ATS",
+  initialName = "Alpha Trend Sentinel",
+  initialPairedStock = "NVDAx",
+  onClose,
+}) => {
+  const [name, setName] = useState(initialName);
+  const [symbol, setSymbol] = useState(initialSymbol);
+  const [pairedStock, setPairedStock] = useState<"NVDAx" | "AAPLx" | "TSLAx" | "SOL">(
+    initialPairedStock,
+  );
   const [curvePreset, setCurvePreset] = useState<"ANCHORED" | "OPEN" | "TREASURY">("ANCHORED");
   const [initialSol, setInitialSol] = useState("2.5");
   const [loading, setLoading] = useState(false);
@@ -31,6 +45,11 @@ export const LaunchScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
+      {onClose && (
+        <TouchableOpacity style={styles.closeBar} onPress={onClose}>
+          <Text style={styles.closeBarText}>✕ CLOSE LAUNCH STUDIO</Text>
+        </TouchableOpacity>
+      )}
       <TerminalHeader
         title="LAUNCH STUDIO"
         subtitle="METEORA DBC • STOCK-PAIRED AGENTS • PUMP.FUN"
@@ -301,5 +320,18 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: THEME.colors.background,
     letterSpacing: 1.2,
+  },
+  closeBar: {
+    backgroundColor: THEME.colors.panel,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.line,
+  },
+  closeBarText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: THEME.colors.bronze,
+    fontFamily: THEME.fonts.mono,
   },
 });

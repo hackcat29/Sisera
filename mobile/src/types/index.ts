@@ -110,8 +110,97 @@ export interface PortfolioSummary {
   };
 }
 
+export type TakeConstituentCategory =
+  | "tokenized_equity"
+  | "pre_ipo"
+  | "perp"
+  | "crypto";
+
+export interface TakeConstituent {
+  symbol: string;
+  name: string;
+  mint?: string;
+  category: TakeConstituentCategory;
+  weightPct: number;
+  targetNotionalUsd: number;
+  entryTriggers: Array<{ type: string } & Record<string, any>>;
+  invalidationRules: Array<{ type: string } & Record<string, any>>;
+  rationale: string;
+}
+
+export interface ThematicTake {
+  id: string;
+  title: string;
+  slug: string;
+  thesis: string;
+  macroTheme: string;
+  targetTotalNotionalUsd: number;
+  constituents: TakeConstituent[];
+  riskGuardrails: {
+    maxDailyDrawdownPct: number;
+    requireNoCriticalEvent: boolean;
+    secFilingAware: boolean;
+  };
+  autopilot: boolean;
+  stressScenarios: {
+    equitySelloffPct: number;
+    privateMarkResetPct: number;
+    cryptoCrashPct: number;
+    liquidityFreezePct: number;
+    weekendGapPct: number;
+  };
+  metrics: {
+    estimatedSharpe: number;
+    estimatedVol30dPct: number;
+    effectivePositions: number;
+    diversificationScore: number;
+  };
+  createdAt: string;
+  forkedFromId?: string | null;
+}
+
+export interface BacktestResultData {
+  asset: { symbol: string; name: string };
+  metrics: {
+    sharpe: number;
+    sortino: number;
+    totalReturnPct: number;
+    cagrPct: number;
+    maxDrawdownPct: number;
+    winRatePct: number;
+  };
+  gate: { outcome: string; summary: string };
+  years: number;
+  tradeCount: number;
+}
+
+export interface BasisArbitrageOpportunity {
+  id: string;
+  asset: string;
+  spotVenue: string;
+  perpVenue: string;
+  spotPriceUsd: number;
+  perpPriceUsd: number;
+  basisSpreadBps: number;
+  fundingRateAprPct: number;
+  borrowCostAprPct: number;
+  netYieldAprPct: number;
+  liquidationBufferPct: number;
+  recommendedLeverage?: number;
+  status: string;
+}
+
 export interface CopilotCard {
-  type: "explanation" | "arguments" | "exposure" | "ranking" | "policy_draft" | "impact";
+  type:
+    | "explanation"
+    | "arguments"
+    | "exposure"
+    | "ranking"
+    | "policy_draft"
+    | "impact"
+    | "take_card"
+    | "backtest_result"
+    | "basis_arbitrage";
   title?: string;
   data: any;
 }

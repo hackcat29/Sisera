@@ -10,21 +10,23 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { BasisArbitrageCard } from "../components/BasisArbitrageCard";
 import { EventRow } from "../components/EventRow";
 import { TerminalHeader } from "../components/TerminalHeader";
 import { THEME } from "../constants/theme";
 import { apiService } from "../services/api";
-import type { AuditLogEntry, MarketEvent, SocialPost } from "../types";
+import type { AuditLogEntry, BasisArbitrageOpportunity, MarketEvent, SocialPost } from "../types";
 import { LaunchScreen } from "./LaunchScreen";
 import { PredictionsScreen } from "./PredictionsScreen";
 import { SettingsScreen } from "./SettingsScreen";
 
 export const HubScreen: React.FC = () => {
   const [activeSubView, setActiveSubView] = useState<
-    "MENU" | "PREDICTIONS" | "LAUNCH" | "MACRO" | "SOCIAL" | "BRIDGE" | "AUDIT" | "LEADERBOARD" | "CONFIG"
+    "MENU" | "PREDICTIONS" | "LAUNCH" | "MACRO" | "ARBITRAGE" | "SOCIAL" | "BRIDGE" | "AUDIT" | "LEADERBOARD" | "CONFIG"
   >("MENU");
 
   const [macroEvents, setMacroEvents] = useState<MarketEvent[]>([]);
+  const [basisOpps, setBasisOpps] = useState<BasisArbitrageOpportunity[]>([]);
   const [leaderboard, setLeaderboard] = useState<Array<{ name: string; pnlUsd: number; returnPct: number }>>([]);
   const [bridgeAmount, setBridgeAmount] = useState("1000");
   const [bridgeSuccess, setBridgeSuccess] = useState<string | null>(null);
@@ -34,12 +36,14 @@ export const HubScreen: React.FC = () => {
   }, []);
 
   const loadHubData = async () => {
-    const [macro, leaders] = await Promise.all([
+    const [macro, leaders, arbitrage] = await Promise.all([
       apiService.getMacroEvents(),
       apiService.getLeaderboard(),
+      apiService.fetchBasisArbitrage(),
     ]);
     setMacroEvents(macro);
     setLeaderboard(leaders);
+    setBasisOpps(arbitrage);
   };
 
   const socialPosts: SocialPost[] = [
@@ -156,6 +160,7 @@ export const HubScreen: React.FC = () => {
               {[
                 { id: "PREDICTIONS", title: "PREDICTION MARKETS", desc: "Jupiter & Panta probability books" },
                 { id: "LAUNCH", title: "LAUNCH STUDIO", desc: "Meteora DBC & Pump.fun stock pairs" },
+                { id: "ARBITRAGE", title: "BASIS ARBITRAGE", desc: "Delta-neutral cash & carry yield harvester" },
                 { id: "MACRO", title: "MACRO REGIME", desc: "Fed rates, Treasury yields, PCE stream" },
                 { id: "SOCIAL", title: "SOCIAL INTELLIGENCE", desc: "Real-time X, Telegram, Discord feeds" },
                 { id: "BRIDGE", title: "USDC BRIDGE", desc: "HyperEVM ⇄ Solana cross-chain bridge" },
@@ -174,6 +179,24 @@ export const HubScreen: React.FC = () => {
               ))}
             </View>
           </>
+        )}
+
+        {/* Subview: BASIS ARBITRAGE */}
+        {activeSubView === "ARBITRAGE" && (
+          <View style={styles.subSection}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => setActiveSubView("MENU")}>
+              <Text style={styles.backBtnText}>‹ HUB MENU</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.sectionHeading}>DELTA-NEUTRAL BASIS ARBITRAGE</Text>
+            <BasisArbitrageCard
+              data={{
+                opportunities: basisOpps,
+                suggestedNotionalUsd: 10000,
+              }}
+              onArmed={loadHubData}
+            />
+          </View>
         )}
 
         {/* Subview: MACRO REGIME */}

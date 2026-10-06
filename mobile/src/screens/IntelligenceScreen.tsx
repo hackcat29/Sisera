@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,18 +12,26 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { BacktestCard } from "../components/BacktestCard";
+import { BasisArbitrageCard } from "../components/BasisArbitrageCard";
 import { EventRow } from "../components/EventRow";
+import { TakeCard } from "../components/TakeCard";
 import { TerminalHeader } from "../components/TerminalHeader";
 import { THEME } from "../constants/theme";
 import { apiService } from "../services/api";
 import type { CopilotCard, CopilotMessage, MarketEvent } from "../types";
+import { LaunchScreen } from "./LaunchScreen";
 
 const SUGGESTED_QUERIES = [
+  "Build me a thematic take on humanoid robotics and automation",
+  "Create a thesis basket on the AI compute and power grid squeeze",
+  "Scan delta-neutral basis arbitrage & funding harvester",
+  "Thematic take: Private AI labs vs public semiconductor giants",
   "Why is OpenAI trading above its mark?",
   "What changed in the last hour?",
-  "Which tokenized stocks are trading furthest from fair value?",
-  "What happens if I allocate $5,000 to NVDAx?",
-  "Show me the strongest argument for and against buying Anthropic",
+  "Which tokenized stocks are furthest from fair value?",
+  "Backtest BTC Momentum Alpha strategy",
+  "Show me arguments for and against buying Anthropic",
   "Buy $2,000 of OpenAI if premium falls below 3%",
 ];
 
@@ -33,7 +42,7 @@ export const IntelligenceScreen: React.FC = () => {
       id: "copilot-welcome",
       role: "assistant",
       content:
-        "Connected to Sisera AI Live Terminal. Ask me about fair-value dislocations, news impact on your portfolio, or compile structured trading policies.",
+        "Connected to Sisera AI Live Terminal. Ask me about multi-asset thematic takes, fair-value dislocations, news impact on your portfolio, or compile structured trading policies.",
       timestamp: "Online",
       provenance: {
         model: "sisera-platform-copilot",
@@ -44,6 +53,10 @@ export const IntelligenceScreen: React.FC = () => {
   const [events, setEvents] = useState<MarketEvent[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [launchModal, setLaunchModal] = useState<{
+    symbol: string;
+    pairedStock: string;
+  } | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -168,61 +181,100 @@ export const IntelligenceScreen: React.FC = () => {
                   <Text style={styles.messageContent}>{item.content}</Text>
 
                   {/* Render Structured Intelligence Cards */}
-                  {item.cards?.map((card: CopilotCard, cIdx: number) => (
-                    <View key={cIdx} style={styles.intelligenceCard}>
-                      {card.title && (
-                        <Text style={styles.cardTitle}>◆ {card.title}</Text>
-                      )}
+                  {item.cards?.map((card: CopilotCard, cIdx: number) => {
+                    if (card.type === "take_card" && card.data) {
+                      return (
+                        <TakeCard
+                          key={cIdx}
+                          take={card.data}
+                          onArmed={() => loadEvents()}
+                          onOpenLaunch={(symbol, pairedStock) =>
+                            setLaunchModal({ symbol, pairedStock })
+                          }
+                        />
+                      );
+                    }
 
-                      {card.type === "ranking" && Array.isArray(card.data) && (
-                        <View style={styles.cardTable}>
-                          {card.data.map((row: any, rIdx: number) => (
-                            <View key={rIdx} style={styles.tableRow}>
-                              <Text style={styles.tableCellSymbol}>{row.symbol}</Text>
-                              <Text style={styles.tableCell}>{row.spot}</Text>
-                              <Text style={styles.tableCellSpread}>{row.spread}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
+                    if (card.type === "backtest_result" && card.data) {
+                      return (
+                        <BacktestCard
+                          key={cIdx}
+                          data={card.data}
+                          onDeploy={() => {
+                            setMessages((prev) => [
+                              ...prev,
+                              {
+                                id: `deploy-${Date.now()}`,
+                                role: "assistant",
+                                content: `🚀 Strategy ${card.data.asset?.symbol ?? "BTC/USDT"} has been promoted to PAPER lifecycle stage under POLICY_AUTO (Level 3). Live order book validation active.`,
+                                timestamp: "Just now",
+                              },
+                            ]);
+                          }}
+                        />
+                      );
+                    }
 
-                      {card.type === "arguments" && card.data && (
-                        <View style={styles.argumentsBox}>
-                          <Text style={styles.bullCase}>
-                            BULL: {card.data.bull}
-                          </Text>
-                          <Text style={styles.bearCase}>
-                            BEAR: {card.data.bear}
-                          </Text>
-                        </View>
-                      )}
+                    if (card.type === "basis_arbitrage" && card.data) {
+                      return <BasisArbitrageCard key={cIdx} data={card.data} />;
+                    }
 
-                      {card.type === "impact" && card.data && (
-                        <View style={styles.impactBox}>
-                          <Text style={styles.impactStatus}>
-                            STATUS: {card.data.mandateCleared ? "MANDATE APPROVED" : "FLAGGED"}
-                          </Text>
-                          <Text style={styles.impactRoute}>
-                            ROUTING: {card.data.route}
-                          </Text>
-                        </View>
-                      )}
+                    return (
+                      <View key={cIdx} style={styles.intelligenceCard}>
+                        {card.title && (
+                          <Text style={styles.cardTitle}>◆ {card.title}</Text>
+                        )}
 
-                      {card.type === "policy_draft" && card.data && (
-                        <View style={styles.policyDraftBox}>
-                          <Text style={styles.policyHeader}>
-                            POLICY: {card.data.policyId}
-                          </Text>
-                          <Text style={styles.policyCondition}>
-                            IF {card.data.condition}
-                          </Text>
-                          <Text style={styles.policyStatus}>
-                            STATUS: {card.data.status}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  ))}
+                        {card.type === "ranking" && Array.isArray(card.data) && (
+                          <View style={styles.cardTable}>
+                            {card.data.map((row: any, rIdx: number) => (
+                              <View key={rIdx} style={styles.tableRow}>
+                                <Text style={styles.tableCellSymbol}>{row.symbol}</Text>
+                                <Text style={styles.tableCell}>{row.spot}</Text>
+                                <Text style={styles.tableCellSpread}>{row.spread}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        {card.type === "arguments" && card.data && (
+                          <View style={styles.argumentsBox}>
+                            <Text style={styles.bullCase}>
+                              BULL: {card.data.bull}
+                            </Text>
+                            <Text style={styles.bearCase}>
+                              BEAR: {card.data.bear}
+                            </Text>
+                          </View>
+                        )}
+
+                        {card.type === "impact" && card.data && (
+                          <View style={styles.impactBox}>
+                            <Text style={styles.impactStatus}>
+                              STATUS: {card.data.mandateCleared ? "MANDATE APPROVED" : "FLAGGED"}
+                            </Text>
+                            <Text style={styles.impactRoute}>
+                              ROUTING: {card.data.route}
+                            </Text>
+                          </View>
+                        )}
+
+                        {card.type === "policy_draft" && card.data && (
+                          <View style={styles.policyDraftBox}>
+                            <Text style={styles.policyHeader}>
+                              POLICY: {card.data.policyId}
+                            </Text>
+                            <Text style={styles.policyCondition}>
+                              IF {card.data.condition}
+                            </Text>
+                            <Text style={styles.policyStatus}>
+                              STATUS: {card.data.status}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
 
                   {item.provenance && (
                     <View style={styles.provenanceRow}>
@@ -269,6 +321,18 @@ export const IntelligenceScreen: React.FC = () => {
           renderItem={({ item }) => <EventRow event={item} />}
         />
       )}
+
+      {/* Launch Studio Modal handoff */}
+      <Modal visible={!!launchModal} animationType="slide">
+        {launchModal && (
+          <LaunchScreen
+            initialSymbol={launchModal.symbol}
+            initialName={`${launchModal.symbol} Take Token`}
+            initialPairedStock={launchModal.pairedStock as any}
+            onClose={() => setLaunchModal(null)}
+          />
+        )}
+      </Modal>
     </View>
   );
 };
