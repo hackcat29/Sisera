@@ -48,6 +48,7 @@ export class HeliusClient {
   constructor(
     private readonly rpcUrl: string,
     private readonly fetcher: typeof fetch = globalThis.fetch,
+    private readonly onTracked?: (address: string) => Promise<void>,
   ) {}
 
   private async rpc(method: string, params: unknown[]) {
@@ -64,6 +65,7 @@ export class HeliusClient {
   }
 
   async getSolLamports(address: string) {
+    await this.onTracked?.(SolanaAddress.parse(address));
     const balance = Balance.parse(
       await this.rpc("getBalance", [SolanaAddress.parse(address), { commitment: "confirmed" }]),
     );
@@ -71,6 +73,7 @@ export class HeliusClient {
   }
 
   async getTokenBalance(address: string, mint: string) {
+    await this.onTracked?.(SolanaAddress.parse(address));
     const accounts = TokenAccounts.parse(
       await this.rpc("getTokenAccountsByOwner", [
         SolanaAddress.parse(address),
@@ -90,6 +93,7 @@ export class HeliusClient {
 
   async getWallet(address: string) {
     const owner = SolanaAddress.parse(address);
+    await this.onTracked?.(owner);
     const balancePayload = await this.rpc("getBalance", [owner, { commitment: "confirmed" }]);
     const balance = Balance.parse(balancePayload);
     let holdings: Array<{

@@ -11,7 +11,9 @@ export function PageHeader({
       <div>
         <p className="data-label text-bronze-300">{eyebrow}</p>
         <h1 className="display mt-2 text-[28px] leading-tight text-bone">{title}</h1>
-        <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-400">{description}</p>
+        {description && (
+          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-slate-400">{description}</p>
+        )}
       </div>
       {actions}
     </div>

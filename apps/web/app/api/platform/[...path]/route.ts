@@ -5,6 +5,8 @@ import { serverApiUrl } from "../../../../lib/server-api-url";
 
 /** API areas the browser may reach through this proxy; everything else is refused. */
 const ALLOWED = [
+  "marketplace",
+  "leaderboard",
   "catalog",
   "intelligence",
   "rankings",

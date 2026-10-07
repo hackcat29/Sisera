@@ -25,6 +25,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Store,
   Target,
   Trophy,
   X,
@@ -81,6 +82,7 @@ const navigation = [
     label: "Automation",
     items: [
       { href: "/agents", label: "Agents", hint: "⌥7", icon: Bot },
+      { href: "/marketplace", label: "Marketplace", hint: "", icon: Store },
       { href: "/launch", label: "Launch", hint: "", icon: Rocket },
     ],
   },

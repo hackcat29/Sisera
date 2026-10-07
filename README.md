@@ -81,6 +81,12 @@ Every trade (manual, policy-driven or agent-driven, paper or live) flows into on
 
 The portfolio is part of the intelligence loop. Before any policy or agent order executes, Sisera measures its effect on concentration, duplicated exposure, sector weight, cash and liquidity, and blocks orders that would breach your mandate.
 
+### Strategy marketplace and wallet discovery
+
+The **Marketplace** lets creators publish a fixed version of a strategy, sell a one-time USDC license, and track earnings paid directly to their wallet. Buyers can add free strategies or purchase access, then import the rules into a new research draft with Sisera’s normal promotion and risk checks.
+
+The **Leaderboard** includes every persisted tracked Solana and EVM wallet, including external wallets whose owners have no Sisera account, alongside all recorded live trades made through Sisera. Time filters compare realized performance; incomplete results are marked partial, and unmeasured wallets remain visible without a rank. Paper trades are excluded. See [setup, accounting limits and validation](MARKETPLACE.md).
+
 ### And the rest of the terminal
 
 Public xStocks and private markets, Binance spot, Hyperliquid perpetuals, Jupiter prediction markets, macro regime and chain data, social feeds, bridging into HyperEVM/HyperCore, paper and live trading tickets, activity timeline, alerts, leaderboard and account settings.

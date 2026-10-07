@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 export function WorkspaceSettings() {
   const [interval, setIntervalValue] = useState("30000");
   const [failedOrders, setFailedOrders] = useState(true);
-  const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -27,7 +26,6 @@ export function WorkspaceSettings() {
           if (!active || savePending.current) return;
           setIntervalValue(String(payload.data.refreshIntervalMs));
           setFailedOrders(payload.data.failedOrderAlerts);
-          setLeaderboardOptIn(payload.data.leaderboardOptIn);
           localStorage.setItem(
             "sisera_refresh_interval_ms",
             String(payload.data.refreshIntervalMs),
@@ -49,11 +47,7 @@ export function WorkspaceSettings() {
       window.removeEventListener("sisera:session-renewed", load);
     };
   }, []);
-  async function save(
-    nextInterval: string,
-    nextFailedOrders: boolean,
-    nextLeaderboardOptIn: boolean,
-  ) {
+  async function save(nextInterval: string, nextFailedOrders: boolean) {
     if (savePending.current) return;
     savePending.current = true;
     setSaving(true);
@@ -65,13 +59,11 @@ export function WorkspaceSettings() {
         body: JSON.stringify({
           refreshIntervalMs: Number(nextInterval),
           failedOrderAlerts: nextFailedOrders,
-          leaderboardOptIn: nextLeaderboardOptIn,
         }),
       });
       if (!response.ok) throw new Error("Settings could not be saved. Please retry.");
       setIntervalValue(nextInterval);
       setFailedOrders(nextFailedOrders);
-      setLeaderboardOptIn(nextLeaderboardOptIn);
       localStorage.setItem("sisera_refresh_interval_ms", nextInterval);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Settings could not be saved.");
@@ -95,7 +87,7 @@ export function WorkspaceSettings() {
         <select
           value={interval}
           disabled={!ready || saving}
-          onChange={(event) => void save(event.target.value, failedOrders, leaderboardOptIn)}
+          onChange={(event) => void save(event.target.value, failedOrders)}
           className="mt-4 w-full rounded border border-line bg-ink p-2 text-xs text-white"
         >
           <option value="0">Manual only</option>
@@ -111,29 +103,13 @@ export function WorkspaceSettings() {
             type="checkbox"
             checked={failedOrders}
             disabled={!ready || saving}
-            onChange={(event) => void save(interval, event.target.checked, leaderboardOptIn)}
+            onChange={(event) => void save(interval, event.target.checked)}
           />
           Show failed and uncertain order alerts
         </label>
         <p className="mt-3 text-[11px] text-slate-500">
           Preferences are saved to your Sisera account. Order status still appears in Activity;
           delayed bridge alerts remain visible.
-        </p>
-      </section>
-      <section className="border border-line bg-panel p-5">
-        <h2 className="text-sm font-semibold text-white">Paper leaderboard</h2>
-        <label className="mt-4 flex items-center gap-3 text-xs text-slate-300">
-          <input
-            type="checkbox"
-            checked={leaderboardOptIn}
-            disabled={!ready || saving}
-            onChange={(event) => void save(interval, failedOrders, event.target.checked)}
-          />
-          Include my pseudonymous paper account in rankings
-        </label>
-        <p className="mt-3 text-[11px] text-slate-500">
-          Participation is optional. Rankings currently cover priced Solana stock, Binance spot, and
-          Hyperliquid perpetual paper accounts only.
         </p>
       </section>
     </div>

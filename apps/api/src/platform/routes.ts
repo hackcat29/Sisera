@@ -17,9 +17,11 @@ import type { CopilotService } from "./copilot-service.js";
 import { DBC_PRESETS } from "./dbc.js";
 import type { IntelligenceService } from "./intelligence-service.js";
 import type { LaunchService } from "./launch-service.js";
+import type { MarketplaceService } from "./marketplace-service.js";
 import type { PolicyService } from "./policy-service.js";
 import type { PortfolioService } from "./portfolio-service.js";
 import type { RankingService } from "./rankings.js";
+import type { WalletLeaderboardService } from "./wallet-leaderboard.js";
 
 export type PlatformServices = {
   catalog: AssetCatalog;
@@ -31,6 +33,8 @@ export type PlatformServices = {
   policies: PolicyService | null;
   agents: AgentService | null;
   launches: LaunchService | null;
+  marketplace: MarketplaceService | null;
+  walletLeaderboard: WalletLeaderboardService | null;
   requireOwnedWallet: (
     reply: FastifyReply,
     subject: string,
@@ -88,6 +92,141 @@ export function registerPlatformRoutes(
       error: "persistence_unavailable",
       message: `${what} needs the account database, which is not configured.`,
     });
+
+  app.get(
+    "/v1/marketplace",
+    { preHandler: requirePermission("market:read") },
+    async (request, reply) => {
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return { data: await services.marketplace.browse(request.principal?.subject ?? "public") };
+    },
+  );
+  app.post(
+    "/v1/marketplace",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      const wallet = Mint.parse((request.body as { payoutWallet?: unknown })?.payoutWallet);
+      if (!(await services.requireOwnedWallet(reply, principal.subject, wallet, "solana")))
+        return reply;
+      return reply
+        .code(201)
+        .send({ data: await services.marketplace.publish(principal, request.body) });
+    },
+  );
+  app.put(
+    "/v1/marketplace/:id/unlist",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return {
+        data: await services.marketplace.unlist(principal.subject, Uuid.parse(request.params).id),
+      };
+    },
+  );
+  app.post(
+    "/v1/marketplace/:id/checkout",
+    {
+      preHandler: requirePermission("agent:read"),
+      config: { rateLimit: { max: 8, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      const { wallet } = z.object({ wallet: Mint.optional() }).strict().parse(request.body);
+      if (
+        wallet &&
+        !(await services.requireOwnedWallet(reply, principal.subject, wallet, "solana"))
+      )
+        return reply;
+      return {
+        data: await services.marketplace.checkout(
+          principal.subject,
+          Uuid.parse(request.params).id,
+          wallet,
+        ),
+      };
+    },
+  );
+  app.get(
+    "/v1/marketplace/checkouts",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return { data: await services.marketplace.pending(principal.subject) };
+    },
+  );
+  app.post(
+    "/v1/marketplace/checkouts/:id/settle",
+    {
+      preHandler: requirePermission("agent:read"),
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      const { signedTransaction } = z
+        .object({ signedTransaction: z.string().min(40).max(5000).optional() })
+        .strict()
+        .parse(request.body);
+      return {
+        data: await services.marketplace.settle(
+          principal.subject,
+          Uuid.parse(request.params).id,
+          signedTransaction,
+        ),
+      };
+    },
+  );
+  app.post(
+    "/v1/marketplace/:id/import",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return reply.code(201).send({
+        data: await services.marketplace.import(principal, Uuid.parse(request.params).id),
+      });
+    },
+  );
+  for (const endpoint of ["/v1/leaderboard", "/v1/leaderboard/wallets"])
+    app.get(endpoint, { preHandler: requirePermission("market:read") }, async (request, reply) => {
+      if (!services.walletLeaderboard) return unavailable(reply, "Wallet leaderboard");
+      const { window, search } = z
+        .object({
+          window: z.enum(["24h", "7d", "30d"]).default("7d"),
+          search: z.string().max(100).default(""),
+        })
+        .parse(request.query);
+      return { data: await services.walletLeaderboard.board(window, search) };
+    });
+  app.post(
+    "/v1/leaderboard/wallets",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.walletLeaderboard) return unavailable(reply, "Wallet leaderboard");
+      const { address } = z
+        .object({ address: z.union([Mint, z.string().regex(/^0x[a-fA-F0-9]{40}$/)]) })
+        .strict()
+        .parse(request.body);
+      await services.walletLeaderboard.track(address);
+      return reply.code(201).send({ data: { address } });
+    },
+  );
 
   // ------------------------------------------------------------------ catalog and intelligence
   app.get(
@@ -408,7 +547,10 @@ export function registerPlatformRoutes(
       if (!services.policies) return unavailable(reply, "Trading policies");
       const { id } = Uuid.parse(request.params);
       const input = z
-        .object({ orderId: z.string().uuid(), signedTransaction: z.string().min(40).max(5000) })
+        .object({
+          orderId: z.string().uuid(),
+          signedTransaction: z.string().min(40).max(5000),
+        })
         .parse(request.body);
       return {
         data: await services.policies.executeSigned(
@@ -977,7 +1119,10 @@ export function registerPlatformRoutes(
       const service = principal && agents(reply);
       if (!principal || !service) return reply;
       const input = z
-        .object({ swapOrderId: z.string().uuid(), signedTransaction: z.string().min(40).max(5000) })
+        .object({
+          swapOrderId: z.string().uuid(),
+          signedTransaction: z.string().min(40).max(5000),
+        })
         .parse(request.body);
       return {
         data: await service.executeSignedOrder(

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -9,6 +8,7 @@ import {
   assessFromEvidence,
   compileIntent,
 } from "@sisera/copilot";
+import { trackWallet } from "@sisera/db";
 import {
   acknowledgeAccountAlert,
   applyMarketPaperOrder,
@@ -24,11 +24,8 @@ import {
   listAccountEvents,
   listAgentManifests,
   listBridgeTransfers,
-  listLeaderboardParticipants,
   listMarketLiveOrders,
-  listMarketPaperAccounts,
   listMarketPaperOrders,
-  listPaperAccounts,
   listPredictionOrders,
   listPredictionPaperOrders,
   listSolanaSwapOrders,
@@ -94,12 +91,14 @@ import { HistoryService } from "./platform/history.js";
 import { IntelligenceService } from "./platform/intelligence-service.js";
 import { LaunchError, LaunchService } from "./platform/launch-service.js";
 import { MarketStateBuilder } from "./platform/market-state.js";
+import { MarketplaceService } from "./platform/marketplace-service.js";
 import { PolicyError, PolicyService } from "./platform/policy-service.js";
 import { PortfolioService } from "./platform/portfolio-service.js";
 import { RankingService } from "./platform/rankings.js";
 import { registerPlatformRoutes } from "./platform/routes.js";
 import { PlatformScheduler } from "./platform/scheduler.js";
 import { SecEdgarClient } from "./platform/sec-edgar.js";
+import { WalletLeaderboardService } from "./platform/wallet-leaderboard.js";
 import { PredictionPaperRejection, settlePredictionPaperOrder } from "./prediction-paper.js";
 import { researchPredictionMarket } from "./prediction-research.js";
 import { PredictionTradingService } from "./prediction-trading.js";
@@ -202,7 +201,15 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     (config.HELIUS_API_KEY
       ? `https://mainnet.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`
       : "https://api.mainnet-beta.solana.com");
-  const helius = new HeliusClient(solanaRpcUrl);
+  const helius = new HeliusClient(
+    solanaRpcUrl,
+    globalThis.fetch,
+    config.DATABASE_URL
+      ? async (address) => {
+          if (config.DATABASE_URL) await trackWallet(config.DATABASE_URL, address);
+        }
+      : undefined,
+  );
   const hyperEvmWallet = new HyperEvmWalletClient();
   const clawpump = config.CLAWPUMP_API_KEY ? new ClawpumpClient(config.CLAWPUMP_API_KEY) : null;
   const jupiter = config.JUPITER_API_KEY ? new JupiterQuoteClient(config.JUPITER_API_KEY) : null;
@@ -463,6 +470,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         .object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) })
         .parse(request.params);
       try {
+        if (config.DATABASE_URL) await trackWallet(config.DATABASE_URL, address);
         return { data: await hyperEvmWallet.balances(address) };
       } catch {
         return reply
@@ -766,6 +774,13 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     chat,
     model: config.SISERA_INTELLIGENCE_MODEL ?? null,
   });
+  const walletLeaderboard = config.DATABASE_URL
+    ? new WalletLeaderboardService(
+        config.DATABASE_URL,
+        config.HELIUS_API_KEY,
+        config.HYPERLIQUID_BASE_URL,
+      )
+    : null;
   registerPlatformRoutes(app, config, {
     catalog,
     intelligence,
@@ -776,12 +791,17 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     policies: policyService,
     agents: agentService,
     launches: launchService,
+    marketplace:
+      config.DATABASE_URL && agentService
+        ? new MarketplaceService(config.DATABASE_URL, agentService, solanaRpcUrl)
+        : null,
+    walletLeaderboard,
     requireOwnedWallet,
   });
   if (config.DATABASE_URL && config.SISERA_SCHEDULER_ENABLED && config.NODE_ENV !== "test") {
     const scheduler = new PlatformScheduler(
       config.DATABASE_URL,
-      { policies: policyService, agents: agentService, intelligence, catalog },
+      { policies: policyService, agents: agentService, intelligence, catalog, walletLeaderboard },
       app.log,
     );
     app.addHook("onReady", async () => scheduler.start());
@@ -1634,146 +1654,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     }),
   );
   app.get(
-    "/v1/leaderboard",
-    { preHandler: requirePermission("market:read") },
-    async (request, reply) => {
-      if (!config.DATABASE_URL)
-        return reply
-          .code(503)
-          .send({ error: "persistence_unavailable", message: "Trade ledger is not configured" });
-      const [accounts, marketAccounts, publicStocks, privateStocks, participants] =
-        await Promise.all([
-          listPaperAccounts(config.DATABASE_URL),
-          listMarketPaperAccounts(config.DATABASE_URL),
-          xstocks.list().catch(() => []),
-          prestocks.list().catch(() => []),
-          listLeaderboardParticipants(config.DATABASE_URL),
-        ]);
-      const prices = new Map<string, number>();
-      for (const asset of publicStocks)
-        if (asset.priceUsd) prices.set(asset.mint, Number(asset.priceUsd));
-      for (const asset of privateStocks)
-        if (asset.instrument.mint) prices.set(asset.instrument.mint, Number(asset.tokenPrice));
-      const totals = new Map<string, { nav: number; baseline: number; observedAt: string }>();
-      const incompleteSubjects = new Set<string>();
-      let skippedUnpriced = 0;
-      const addAccount = (subject: string, nav: number, observedAt: string) => {
-        const previous = totals.get(subject);
-        totals.set(subject, {
-          nav: (previous?.nav ?? 0) + nav,
-          baseline: (previous?.baseline ?? 0) + 10_000,
-          observedAt:
-            previous && previous.observedAt > observedAt ? previous.observedAt : observedAt,
-        });
-      };
-      for (const account of accounts) {
-        if (!participants.has(account.subject)) continue;
-        const holdings = Object.entries(account.holdings).filter(
-          ([, quantity]) => Number(quantity) !== 0,
-        );
-        if (holdings.some(([mint]) => !Number.isFinite(prices.get(mint)))) {
-          skippedUnpriced++;
-          incompleteSubjects.add(account.subject);
-          continue;
-        }
-        const nav =
-          Number(account.cashUsd) +
-          holdings.reduce(
-            (sum, [mint, quantity]) => sum + Number(quantity) * (prices.get(mint) ?? 0),
-            0,
-          );
-        if (!Number.isFinite(nav)) {
-          skippedUnpriced++;
-          incompleteSubjects.add(account.subject);
-          continue;
-        }
-        addAccount(account.subject, nav, account.updatedAt.toISOString());
-      }
-      const spotSymbols = new Set<string>();
-      const perpSymbols = new Set<string>();
-      for (const account of marketAccounts) {
-        if (!participants.has(String(account.subject))) continue;
-        for (const [asset, quantity] of Object.entries(
-          account.spotHoldings as Record<string, string>,
-        ))
-          if (Number(quantity) !== 0) spotSymbols.add(`${asset}USDT`);
-        for (const [symbol, position] of Object.entries(
-          account.perpPositions as Record<string, { size: string }>,
-        ))
-          if (Number(position.size) !== 0) perpSymbols.add(symbol);
-      }
-      const marketMarks = new Map<string, number>();
-      await Promise.all([
-        ...[...spotSymbols].map(async (symbol) => {
-          const snapshot = await marketData.getSnapshot(symbol).catch(() => null);
-          if (snapshot?.quality.status === "live")
-            marketMarks.set(`spot:${symbol}`, Number(snapshot.bid));
-        }),
-        ...[...perpSymbols].map(async (symbol) => {
-          const snapshot = await hyperliquid.getSnapshot(symbol).catch(() => null);
-          if (snapshot?.quality.status === "live")
-            marketMarks.set(`perp:${symbol}`, Number(snapshot.last));
-        }),
-      ]);
-      for (const account of marketAccounts) {
-        if (!participants.has(String(account.subject))) continue;
-        const spotHoldings = Object.entries(account.spotHoldings as Record<string, string>).filter(
-          ([, quantity]) => Number(quantity) !== 0,
-        );
-        const perpPositions = Object.entries(
-          account.perpPositions as Record<string, { size: string; entryPrice: string }>,
-        ).filter(([, position]) => Number(position.size) !== 0);
-        if (
-          spotHoldings.some(([asset]) => !Number.isFinite(marketMarks.get(`spot:${asset}USDT`))) ||
-          perpPositions.some(([symbol]) => !Number.isFinite(marketMarks.get(`perp:${symbol}`)))
-        ) {
-          skippedUnpriced++;
-          incompleteSubjects.add(String(account.subject));
-          continue;
-        }
-        const nav =
-          Number(account.cashUsd) +
-          spotHoldings.reduce(
-            (sum, [asset, quantity]) =>
-              sum + Number(quantity) * (marketMarks.get(`spot:${asset}USDT`) ?? 0),
-            0,
-          ) +
-          perpPositions.reduce(
-            (sum, [symbol, position]) =>
-              sum +
-              Number(position.size) *
-                ((marketMarks.get(`perp:${symbol}`) ?? 0) - Number(position.entryPrice)),
-            0,
-          );
-        if (!Number.isFinite(nav)) {
-          skippedUnpriced++;
-          incompleteSubjects.add(String(account.subject));
-          continue;
-        }
-        addAccount(
-          String(account.subject),
-          nav,
-          new Date(account.updatedAt as string | Date).toISOString(),
-        );
-      }
-      const rows = [...totals.entries()]
-        .filter(([subject]) => !incompleteSubjects.has(subject))
-        .map(([subject, total]) => ({
-          name: `Trader ${createHash("sha256").update(subject).digest("hex").slice(0, 8)}`,
-          pnlUsd: total.nav - total.baseline,
-          returnPct: ((total.nav - total.baseline) / total.baseline) * 100,
-          observedAt: total.observedAt,
-        }))
-        .sort((left, right) => right.pnlUsd - left.pnlUsd);
-      return {
-        data: rows,
-        scope: "Paper accounts: Solana stocks, Binance spot, Hyperliquid perps",
-        baselineUsd: 10_000,
-        skippedUnpriced,
-      };
-    },
-  );
-  app.get(
     "/v1/pyth/reference",
     { preHandler: requirePermission("market:read") },
     async (request, reply) => {
@@ -1992,6 +1872,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       const { address } = z
         .object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) })
         .parse(request.params);
+      if (config.DATABASE_URL) await trackWallet(config.DATABASE_URL, address);
       return { data: await hyperliquid.getPublicAccount(address) };
     },
   );

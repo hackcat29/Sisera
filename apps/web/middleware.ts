@@ -18,6 +18,7 @@ export const config = {
     "/portfolio/:path*",
     "/risk/:path*",
     "/agents/:path*",
+    "/marketplace/:path*",
     "/audit/:path*",
     "/alerts/:path*",
     "/settings/:path*",

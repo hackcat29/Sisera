@@ -621,15 +621,6 @@ export async function getAgents(identity: ApiIdentity) {
   );
 }
 
-export async function getLeaderboard(identity: ApiIdentity) {
-  return getJson<{
-    data: Array<{ name: string; pnlUsd: number; returnPct: number; observedAt: string }>;
-    scope: string;
-    baselineUsd: number;
-    skippedUnpriced: number;
-  }>("/v1/leaderboard", identity, 15000);
-}
-
 export type MarketActivityOrder = {
   id: string;
   venue: string;

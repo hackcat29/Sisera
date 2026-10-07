@@ -4,8 +4,14 @@ import type { AgentService } from "./agent-service.js";
 import type { AssetCatalog } from "./catalog.js";
 import type { IntelligenceService } from "./intelligence-service.js";
 import type { PolicyService } from "./policy-service.js";
+import type { WalletLeaderboardService } from "./wallet-leaderboard.js";
 
-const LOCKS = { policies: 7_310_001, agents: 7_310_002, events: 7_310_003 } as const;
+const LOCKS = {
+  policies: 7_310_001,
+  agents: 7_310_002,
+  events: 7_310_003,
+  wallets: 7_310_004,
+} as const;
 
 /**
  * Background loops for conversational policies, agents and event collection. Each loop takes a
@@ -23,6 +29,7 @@ export class PlatformScheduler {
       agents: AgentService | null;
       intelligence: IntelligenceService;
       catalog: AssetCatalog;
+      walletLeaderboard?: WalletLeaderboardService | null;
     },
     private readonly log: FastifyBaseLogger,
   ) {}
@@ -53,7 +60,8 @@ export class PlatformScheduler {
   }
 
   start() {
-    const { policies, agents, intelligence, catalog } = this.services;
+    const { policies, agents, intelligence, catalog, walletLeaderboard } = this.services;
+    if (walletLeaderboard) this.every("wallets", 30_000, () => walletLeaderboard.refreshTracked());
     if (policies) this.every("policies", 30_000, () => policies.evaluateActive());
     if (agents) this.every("agents", 60_000, () => agents.tick());
     this.every("events", 15 * 60_000, async () => {
