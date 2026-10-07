@@ -138,10 +138,7 @@ export default async function RiskPage({
       </div>
       <section className="m-4 rounded-lg border border-amber-400/20 bg-amber-400/[.05] p-5 text-xs leading-6 text-slate-300 md:m-6">
         <h2 className="text-sm font-semibold text-white">Your protection</h2>
-        <p className="mt-2">
-          Live stock orders require a wallet linked to your account, a current executable quote, and
-          checks on trade size and price impact. Exposure below reflects the wallets in view.
-        </p>
+        <p className="mt-2">Exposure for visible wallets.</p>
       </section>
       <section className="mx-4 border border-line bg-panel p-5 md:mx-6">
         <h2 className="text-sm font-semibold text-white">Solana wallet exposure</h2>
@@ -335,8 +332,7 @@ export default async function RiskPage({
           </div>
           <div className="border-t border-line p-3">
             <p className="text-[10px] leading-5 text-slate-500">
-              These scenarios estimate the effect on visible perpetual positions. Actual losses can
-              differ because of liquidity, fees and liquidation.
+              Scenario estimates · visible perpetual positions.
             </p>
           </div>
         </section>

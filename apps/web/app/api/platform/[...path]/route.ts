@@ -53,6 +53,7 @@ async function forward(request: NextRequest, path: string[]) {
   if (write) headers["content-type"] = "application/json";
   const target = `${serverApiUrl()}/v1/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
   const long =
+    path.includes("compile") ||
     path.includes("backtest") ||
     path.includes("stress") ||
     path.includes("chat") ||

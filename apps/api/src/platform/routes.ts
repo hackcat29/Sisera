@@ -1,29 +1,28 @@
 import { getRiskPreferences, saveRiskPreferences } from "@sisera/db";
-import {
-  ThematicTake,
-  calculateBasisArbitrageOpportunities,
-  calculateTakeStress,
-  synthesizeThematicTake,
-} from "@sisera/policy";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requirePermission } from "../auth.js";
 import type { ApiConfig } from "../config.js";
 import type { WalletChain } from "../wallet-ownership.js";
 import type { AgentMarketService } from "./agent-market.js";
+import { AgentError } from "./agent-service.js";
 import type { AgentService } from "./agent-service.js";
 import { AssetCatalog } from "./catalog.js";
 import type { CopilotService } from "./copilot-service.js";
 import { DBC_PRESETS } from "./dbc.js";
 import type { IntelligenceService } from "./intelligence-service.js";
 import type { LaunchService } from "./launch-service.js";
+import type { LiveBasisService } from "./live-basis.js";
 import type { MarketplaceService } from "./marketplace-service.js";
 import type { PolicyService } from "./policy-service.js";
 import type { PortfolioService } from "./portfolio-service.js";
 import type { RankingService } from "./rankings.js";
+import type { ThematicResearchService } from "./thematic-research.js";
 import type { WalletLeaderboardService } from "./wallet-leaderboard.js";
 
 export type PlatformServices = {
+  research: ThematicResearchService;
+  basis: LiveBasisService;
   catalog: AssetCatalog;
   intelligence: IntelligenceService;
   rankings: RankingService;
@@ -99,6 +98,35 @@ export function registerPlatformRoutes(
     async (request, reply) => {
       if (!services.marketplace) return unavailable(reply, "Marketplace");
       return { data: await services.marketplace.browse(request.principal?.subject ?? "public") };
+    },
+  );
+  app.get(
+    "/v1/marketplace/:id",
+    { preHandler: requirePermission("market:read") },
+    async (request, reply) => {
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return {
+        data: await services.marketplace.detail(
+          request.principal?.subject ?? "public",
+          Uuid.parse(request.params).id,
+        ),
+      };
+    },
+  );
+  app.post(
+    "/v1/marketplace/:id/reviews",
+    { preHandler: requirePermission("agent:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.marketplace) return unavailable(reply, "Marketplace");
+      return {
+        data: await services.marketplace.review(
+          principal.subject,
+          Uuid.parse(request.params).id,
+          request.body,
+        ),
+      };
     },
   );
   app.post(
@@ -563,81 +591,85 @@ export function registerPlatformRoutes(
     },
   );
 
-  // ------------------------------------------------------------------ thematic takes
+  // Immutable, account-scoped research. Clients supply IDs, never executable evidence.
+  const TakeId = z
+    .object({
+      takeId: z.string().max(100).optional(),
+      take: z.object({ id: z.string().max(100) }).optional(),
+    })
+    .refine((i) => Boolean(i.takeId ?? i.take?.id), "Research ID required");
+  app.get("/v1/takes", { preHandler: requirePermission("market:read") }, async (request, reply) => {
+    const principal = await account(request, reply);
+    if (!principal) return reply;
+    return { data: await services.research.list(principal.subject) };
+  });
+  app.get(
+    "/v1/takes/:id",
+    { preHandler: requirePermission("market:read") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      return {
+        data: await services.research.saved(
+          principal.subject,
+          z.object({ id: z.string().max(100) }).parse(request.params).id,
+          false,
+        ),
+      };
+    },
+  );
   app.post(
     "/v1/takes/compile",
     {
       preHandler: requirePermission("market:read"),
-      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
-    },
-    async (request) => {
-      const { text, totalNotionalUsd } = z
-        .object({
-          text: z.string().trim().min(3).max(2000),
-          totalNotionalUsd: z.number().positive().max(1_000_000).default(5000),
-        })
-        .parse(request.body);
-      const take = synthesizeThematicTake({
-        themeText: text,
-        totalNotionalUsd,
-      });
-      return { data: take };
-    },
-  );
-
-  app.post(
-    "/v1/takes/fork",
-    {
-      preHandler: requirePermission("order:paper:create"),
-      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
     },
     async (request, reply) => {
       const principal = await account(request, reply);
       if (!principal) return reply;
       const input = z
         .object({
-          take: ThematicTake,
-          totalNotionalUsd: z.number().positive().optional(),
-          constituentTweaks: z
-            .array(z.object({ symbol: z.string(), weightPct: z.number().min(1).max(100) }))
-            .optional(),
+          text: z.string().trim().min(3).max(2000),
+          totalNotionalUsd: z.number().positive().max(1_000_000).default(5000),
+          maxWeightPct: z.number().min(15).max(50).multipleOf(0.01).optional(),
+          minLiquidityUsd: z.number().min(25000).max(1e9).optional(),
         })
         .parse(request.body);
-
-      const base = input.take;
-      const totalNotional = input.totalNotionalUsd ?? base.targetTotalNotionalUsd;
-      let constituents = base.constituents.map((c) => ({ ...c }));
-
-      if (input.constituentTweaks?.length) {
-        const tweakMap = new Map(input.constituentTweaks.map((t) => [t.symbol, t.weightPct]));
-        constituents = constituents.map((c) => {
-          const newWeight = tweakMap.get(c.symbol) ?? c.weightPct;
-          return {
-            ...c,
-            weightPct: newWeight,
-            targetNotionalUsd: Math.round((totalNotional * newWeight) / 100),
-          };
-        });
-      }
-
-      const { stressScenarios, metrics } = calculateTakeStress(constituents);
-      const forkedTake: ThematicTake = {
-        ...base,
-        id: `take:fork-${Date.now().toString(36)}`,
-        slug: `${base.slug}-forked`,
-        title: `${base.title} (Fork)`,
-        targetTotalNotionalUsd: totalNotional,
-        constituents,
-        stressScenarios,
-        metrics,
-        createdAt: new Date().toISOString(),
-        forkedFromId: base.id,
+      return {
+        data: await services.research.compile(
+          principal.subject,
+          input.text,
+          input.totalNotionalUsd,
+          input,
+        ),
       };
-
-      return { data: forkedTake };
     },
   );
-
+  app.post(
+    "/v1/takes/fork",
+    { preHandler: requirePermission("order:paper:create") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      const input = TakeId.and(
+        z.object({
+          totalNotionalUsd: z.number().positive().max(1_000_000).optional(),
+          constituentTweaks: z
+            .array(z.object({ symbol: z.string(), weightPct: z.number().min(1).max(50) }))
+            .max(8)
+            .optional(),
+        }),
+      ).parse(request.body);
+      return {
+        data: await services.research.fork(
+          principal.subject,
+          input.takeId ?? input.take?.id ?? "",
+          input.totalNotionalUsd,
+          input.constituentTweaks,
+        ),
+      };
+    },
+  );
   app.post(
     "/v1/takes/arm",
     {
@@ -648,182 +680,157 @@ export function registerPlatformRoutes(
       const principal = await account(request, reply);
       if (!principal) return reply;
       if (!services.policies) return unavailable(reply, "Trading policies");
-      const input = z
-        .object({
-          take: ThematicTake,
+      const input = TakeId.and(
+        z.object({
           mode: z.enum(["paper", "live"]).default("paper"),
           wallet: Mint.nullable().optional(),
-        })
-        .parse(request.body);
-
-      const createdPolicies = [];
-      const expiresAt = new Date(Date.now() + 14 * 86_400_000).toISOString();
-
-      for (const constituent of input.take.constituents) {
-        const asset =
-          (await services.catalog.byKey(constituent.symbol).catch(() => null)) ??
-          (await services.catalog.resolveText(constituent.symbol).catch(() => null));
-        if (!asset) continue;
-
-        const policyDraft = {
-          version: 1,
-          name: `[${input.take.title}] ${constituent.symbol} (${constituent.weightPct}%)`,
-          instrument: AssetCatalog.toInstrumentRef(asset),
-          action: {
-            side: "buy" as const,
-            notionalUsd: Math.max(10, constituent.targetNotionalUsd),
-            mode: input.mode,
-          },
-          triggers: constituent.entryTriggers.length
-            ? constituent.entryTriggers
-            : [
-                {
-                  type: "no_negative_event" as const,
-                  minSeverity: "high" as const,
-                  lookbackHours: 24,
-                  includeRumors: true,
-                },
-              ],
-          invalidation: {
-            expiresAt,
-            conditions: constituent.invalidationRules,
-          },
-          execution: {
-            maxSlippageBps: 100,
-            requireApproval: false,
-          },
-          limits: {
-            maxPortfolioWeightPct: Math.min(100, constituent.weightPct * 1.5),
-            maxLiquidityUsagePct: 2,
-          },
-          sourceText: `Thematic Take Autopilot: ${input.take.title} - ${constituent.rationale}`,
-        };
-
-        try {
+        }),
+      ).parse(request.body);
+      // Research has not passed the mandatory agent promotion pipeline.
+      if (input.mode !== "paper")
+        throw new AgentError("Promote an evaluated strategy before enabling live capital.", 409);
+      const take = await services.research.saved(
+        principal.subject,
+        input.takeId ?? input.take?.id ?? "",
+      );
+      const current = await services.catalog.list({ withReferences: true });
+      const assets = take.constituents.map((c) =>
+        current.find((a) => a.key === c.assetKey && a.mint === c.mint),
+      );
+      if (
+        assets.some(
+          (a) =>
+            !a ||
+            a.tradingHalted ||
+            !a.priceUsd ||
+            Date.now() - Date.parse(a.observedAt) > 300000 ||
+            (a.liquidityUsd ?? 0) < (take.research?.minLiquidityUsd ?? 25000),
+        )
+      )
+        throw new AgentError("Market conditions changed. Refresh this research.", 409);
+      const createdPolicies: Awaited<ReturnType<PolicyService["create"]>>[] = [];
+      try {
+        for (const [i, c] of take.constituents.entries()) {
+          const asset = assets[i];
+          if (!asset) throw new AgentError("Asset unavailable.", 409);
           const row = await services.policies.create(principal, {
-            policy: policyDraft,
-            activate: true,
+            activate: false,
             wallet: input.wallet ?? null,
             source: "thematic_take",
+            policy: {
+              version: 1,
+              name: `${take.title.slice(0, 80)} · ${c.symbol}`,
+              instrument: AssetCatalog.toInstrumentRef(asset),
+              action: { side: "buy", notionalUsd: c.targetNotionalUsd, mode: "paper" },
+              triggers: c.entryTriggers,
+              invalidation: {
+                expiresAt: take.research?.expiresAt ?? take.createdAt,
+                conditions: c.invalidationRules,
+              },
+              execution: { maxSlippageBps: 100, requireApproval: false },
+              limits: { maxPortfolioWeightPct: c.weightPct, maxLiquidityUsagePct: 2 },
+              sourceText: `Research ${take.id}: ${c.symbol}`,
+            },
           });
           createdPolicies.push(row);
-        } catch {
-          // Continue if single constituent fails validation
         }
+        for (const row of createdPolicies)
+          await services.policies.activate(principal.subject, row.id);
+      } catch (error) {
+        await Promise.allSettled(
+          createdPolicies.map((row) => services.policies?.cancel(principal.subject, row.id)),
+        );
+        throw error;
       }
-
       return reply.code(201).send({
         data: {
-          takeId: input.take.id,
+          takeId: take.id,
           armedCount: createdPolicies.length,
           policies: createdPolicies,
           status: "armed",
           autopilot: true,
+          mode: "paper",
         },
       });
     },
   );
-
   app.post(
     "/v1/takes/tokenize",
-    {
-      preHandler: requirePermission("market:read"),
-      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
-    },
-    async (request) => {
-      const input = z.object({ take: ThematicTake }).parse(request.body);
-      const take = input.take;
-
-      const code = take.title
-        .replace(/[^A-Za-z0-9]/g, "")
-        .slice(0, 5)
-        .toUpperCase();
-      const tokenSymbol = `TKE${code}`;
-      const tokenName = `${take.title.slice(0, 24)} Take Token`;
-
-      const equityConstituent = take.constituents.find((c) => c.category === "tokenized_equity");
-      const pairedStock = equityConstituent?.symbol ?? "NVDAx";
-
-      const tokenizationSpec = {
-        takeId: take.id,
-        tokenSymbol,
-        tokenName,
-        thesis: take.thesis,
-        pairedStock,
-        curvePreset: "reference_anchored" as const,
-        suggestedQuoteAsset: "USDC",
-        creatorFeeBps: 50,
-        antiSniperFeeBps: 250,
-        targetCapUsd: 100_000,
-        graduatesTo: "Meteora DAMM v2",
-        agentIdentity: {
-          name: `${take.title} Autopilot Agent`,
-          autonomy: "policy_auto",
-          strategyUniverse: take.constituents.map((c) => c.symbol),
-        },
-      };
-
-      return { data: tokenizationSpec };
-    },
-  );
-
-  // ------------------------------------------------------------------ basis arbitrage
-  app.get(
-    "/v1/arbitrage/basis",
-    {
-      preHandler: requirePermission("market:read"),
-      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
-    },
-    async () => {
-      const opportunities = services.agents
-        ? await services.agents.listBasisArbitrageOpportunities()
-        : calculateBasisArbitrageOpportunities();
-      return { data: opportunities };
-    },
-  );
-
-  app.post(
-    "/v1/arbitrage/arm",
-    {
-      preHandler: requirePermission("agent:manage"),
-      config: { rateLimit: { max: 15, timeWindow: "1 minute" } },
-    },
+    { preHandler: requirePermission("market:read") },
     async (request, reply) => {
       const principal = await account(request, reply);
       if (!principal) return reply;
+      const input = TakeId.parse(request.body);
+      const take = await services.research.saved(
+        principal.subject,
+        input.takeId ?? input.take?.id ?? "",
+      );
+      const equity = take.constituents.find((c) => c.category === "tokenized_equity");
+      if (!equity) throw new AgentError("A public equity reference is required for this launch.");
+      return {
+        data: {
+          takeId: take.id,
+          tokenSymbol: `TKE${take.title
+            .replace(/[^A-Za-z0-9]/g, "")
+            .slice(0, 5)
+            .toUpperCase()}`,
+          tokenName: `${take.title.slice(0, 24)} Take`,
+          thesis: take.thesis,
+          pairedStock: equity.symbol,
+          curvePreset: "reference_anchored",
+          suggestedQuoteAsset: "USDC",
+          creatorFeeBps: 50,
+          antiSniperFeeBps: 250,
+          targetCapUsd: 100000,
+          graduatesTo: "Meteora DAMM v2",
+          agentIdentity: {
+            name: take.title,
+            autonomy: "research",
+            strategyUniverse: take.constituents.map((c) => c.symbol),
+          },
+        },
+      };
+    },
+  );
+  app.get(
+    "/v1/arbitrage/basis",
+    { preHandler: requirePermission("market:read") },
+    async (request, reply) => {
+      const input = z
+        .object({
+          notionalUsd: z.coerce.number().positive().max(1_000_000).default(5000),
+          holdingDays: z.coerce.number().min(1).max(365).default(30),
+        })
+        .parse(request.query);
+      try {
+        return { data: await services.basis.list(input.notionalUsd, input.holdingDays) };
+      } catch {
+        return reply
+          .code(503)
+          .send({ error: "quotes_unavailable", message: "Live venue quotes unavailable." });
+      }
+    },
+  );
+  app.post(
+    "/v1/arbitrage/arm",
+    { preHandler: requirePermission("agent:manage") },
+    async (request, reply) => {
+      const principal = await account(request, reply);
+      if (!principal) return reply;
+      if (!services.agents) return unavailable(reply, "Strategy drafts");
       const input = z
         .object({
           asset: z.string().trim().min(2).max(16),
           notionalUsd: z.number().positive().max(1_000_000).default(5000),
-          maxLeverage: z.number().positive().max(5).default(2),
+          maxLeverage: z.literal(1).optional(),
         })
         .parse(request.body);
-      if (services.agents) {
-        const armed = await services.agents.armBasisHarvester(principal, input);
-        return reply.code(201).send({ data: armed });
-      }
-      const opportunities = calculateBasisArbitrageOpportunities();
-      const opp =
-        opportunities.find((o) => o.asset.toLowerCase() === input.asset.toLowerCase()) ??
-        opportunities[0];
-      const estimatedDailyYieldUsd =
-        (input.notionalUsd * ((opp?.netYieldAprPct ?? 25) / 100)) / 365;
       return reply.code(201).send({
-        data: {
-          agentId: `harvester-${Date.now()}`,
-          name: `Delta-Neutral Basis Harvester (${opp?.asset ?? input.asset})`,
-          stage: "draft",
-          autonomy: "policy_auto",
-          asset: opp?.asset ?? input.asset,
-          netYieldAprPct: opp?.netYieldAprPct ?? 25,
+        data: await services.agents.armBasisHarvester(principal, {
+          asset: input.asset,
           notionalUsd: input.notionalUsd,
-          estimatedDailyYieldUsd,
-          spotVenue: opp?.spotVenue ?? "solana_jupiter",
-          perpVenue: opp?.perpVenue ?? "hyperliquid",
-          liquidationBufferPct: opp?.liquidationBufferPct ?? 35,
-          status: "armed",
-          createdAt: new Date().toISOString(),
-        },
+          maxLeverage: 1,
+        }),
       });
     },
   );

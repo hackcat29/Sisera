@@ -225,8 +225,7 @@ export default async function PortfolioPage({
               Watch a Hyperliquid perp wallet
             </h2>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-400">
-              Read-only clearinghouse state for an address you supply. This is not custody, account
-              verification, or a reconciled Sisera portfolio.
+              Read-only wallet view.
             </p>
           </div>
           {observed && (

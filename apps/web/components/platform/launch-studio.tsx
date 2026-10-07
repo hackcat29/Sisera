@@ -156,12 +156,6 @@ function ClawpumpLaunch({
   };
   return (
     <div className="space-y-3 p-4">
-      <p className="text-xs leading-5 text-slate-400">
-        Clawpump creates the agent’s onchain identity and launches its token on Pump.fun. Pick a
-        stock pair to create a stock-paired market: the token trades against the stock token and
-        creator fees accrue in it. Your wallet pays the quoted launch cost; nothing is charged until
-        you sign.
-      </p>
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Token name">
           <input
@@ -414,11 +408,6 @@ function DbcLaunch({ agentId, onLaunched }: { agentId: string | null; onLaunched
   const quoteUsd = form.quoteMint === USDC ? 1 : (quoteAsset?.priceUsd ?? null);
   return (
     <div className="space-y-3 p-4">
-      <p className="text-xs leading-5 text-slate-400">
-        Meteora Dynamic Bonding Curve: a programmable launch curve that graduates into a Meteora
-        DAMM v2 pool. Quote it in SOL, USDC or a stock token to make the market stock-paired. Sisera
-        builds and simulates both transactions; your wallet signs and pays rent.
-      </p>
       <div className="grid gap-2 md:grid-cols-3">
         {presets.map((preset) => (
           <button

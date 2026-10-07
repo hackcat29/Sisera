@@ -77,11 +77,7 @@ export function AgentCreateForm({
       <h2 className="text-sm font-semibold text-bone">
         {template ? `Customize ${template.name}` : "Build your strategy"}
       </h2>
-      <p className="text-xs text-slate-400">
-        {template
-          ? "Every field below comes from the template. Change the markets, rules, and limits to make it yours, then save your copy."
-          : "Choose the markets to follow, describe your rules and set limits before testing the idea."}
-      </p>
+
       <input
         name="name"
         required
@@ -117,11 +113,6 @@ export function AgentCreateForm({
         className="min-h-20 w-full rounded border border-line bg-ink p-2 text-xs"
       />
       <div className="space-y-3 border border-line p-3">
-        <p className="text-xs text-slate-400">
-          Executable rules. Entry conditions must all pass; any exit condition closes the position.
-          Without rules the strategy stays a research draft. Live-only conditions cannot be
-          backtested and are enforced at runtime.
-        </p>
         <RuleList title="Entry — all must pass" conditions={entry} onChange={setEntry} />
         <RuleList title="Exit — any closes" conditions={exit} onChange={setExit} />
       </div>

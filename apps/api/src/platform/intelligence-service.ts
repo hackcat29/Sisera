@@ -201,6 +201,21 @@ export class IntelligenceService {
     return events;
   }
 
+  /** Topic retrieval preserves entity matching; a search query never establishes company exposure. */
+  async forTopic(text: string): Promise<MarketEvent[]> {
+    const [result, universe] = await Promise.all([
+      this.news.search(text.slice(0, 300)),
+      this.universe(),
+    ]);
+    const events = clusterEvents(
+      dedupeByUrl(result.data)
+        .filter((item) => isUsableItem(item, Date.now(), 14))
+        .map((item) => classifyItem(item, universe)),
+    );
+    this.remember(events);
+    return events;
+  }
+
   /** Stored events, newest first, optionally narrowed to one asset or a time window. */
   async stored(
     filter: { since?: string; assetKey?: string; limit?: number } = {},

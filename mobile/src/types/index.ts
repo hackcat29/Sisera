@@ -150,8 +150,8 @@ export interface ThematicTake {
     weekendGapPct: number;
   };
   metrics: {
-    estimatedSharpe: number;
-    estimatedVol30dPct: number;
+    estimatedSharpe: number | null;
+    estimatedVol30dPct: number | null;
     effectivePositions: number;
     diversificationScore: number;
   };
@@ -185,7 +185,7 @@ export interface BasisArbitrageOpportunity {
   fundingRateAprPct: number;
   borrowCostAprPct: number;
   netYieldAprPct: number;
-  liquidationBufferPct: number;
+  liquidationBufferPct: number | null;
   recommendedLeverage?: number;
   status: string;
 }

@@ -39,9 +39,10 @@ export const TakeCard: React.FC<TakeCardProps> = ({
     try {
       const res = await apiService.armThematicTake(take, "paper");
       setState("armed");
-      const count = res?.armedCount ?? take.constituents.length;
+      if (!res) throw new Error("Request failed");
+      const count = res.armedCount;
       setFeedback(
-        `⚡ Armed ${count} constituent policies under 24/7 Autopilot. SEC EDGAR and news guards active.`,
+        `${count} paper policies active.`,
       );
       onArmed?.();
     } catch {
@@ -63,27 +64,9 @@ export const TakeCard: React.FC<TakeCardProps> = ({
         });
         setState("tokenized");
         setFeedback(
-          `🚀 Tokenized on Meteora DBC! Symbol ${res.tokenSymbol} anchored against ${res.pairedStock}.`,
+          `🚀 Launch prepared! Symbol ${res.tokenSymbol} anchored against ${res.pairedStock}.`,
         );
-      } else {
-        const eq = take.constituents.find(
-          (c) => c.category === "tokenized_equity",
-        );
-        const code = take.title
-          .replace(/[^A-Za-z0-9]/g, "")
-          .slice(0, 5)
-          .toUpperCase();
-        const fallbackSpec = {
-          tokenSymbol: `TKE${code}`,
-          tokenName: `${take.title.slice(0, 20)} DBC`,
-          pairedStock: eq?.symbol ?? "NVDAx",
-        };
-        setTokenizedSpec(fallbackSpec);
-        setState("tokenized");
-        setFeedback(
-          `🚀 Tokenized on Meteora DBC! Symbol ${fallbackSpec.tokenSymbol} anchored against ${fallbackSpec.pairedStock}.`,
-        );
-      }
+      } else { throw new Error("Launch preparation unavailable"); }
     } catch {
       setFeedback("Failed to tokenize take on Meteora bonding curve.");
       setState("idle");
@@ -98,22 +81,22 @@ export const TakeCard: React.FC<TakeCardProps> = ({
           <Text style={styles.title}>{take.title}</Text>
           <View style={styles.badgeRow}>
             <View style={styles.badgeAutopilot}>
-              <Text style={styles.badgeAutopilotText}>⚡ AUTOPILOT ACTIVE</Text>
+              <Text style={styles.badgeAutopilotText}>RESEARCH DRAFT</Text>
             </View>
             <View style={styles.badgeDbc}>
-              <Text style={styles.badgeDbcText}>DBC READY</Text>
+              <Text style={styles.badgeDbcText}>REVIEW</Text>
             </View>
           </View>
           <Text style={styles.macroSubtitle}>
             {take.macroTheme} · Target: $
-            {take.targetTotalNotionalUsd?.toLocaleString() ?? "5,000"} · SEC EDGAR 8-K Verified
+            {take.targetTotalNotionalUsd?.toLocaleString() ?? "5,000"}
           </Text>
         </View>
 
         <View style={styles.sharpeBox}>
-          <Text style={styles.sharpeLabel}>EST. SHARPE</Text>
+          <Text style={styles.sharpeLabel}>HISTORICAL SHARPE</Text>
           <Text style={styles.sharpeValue}>
-            {take.metrics?.estimatedSharpe?.toFixed(2) ?? "2.10"}
+            {take.metrics?.estimatedSharpe?.toFixed(2) ?? "—"}
           </Text>
         </View>
       </View>
@@ -239,7 +222,7 @@ export const TakeCard: React.FC<TakeCardProps> = ({
               <ActivityIndicator size="small" color="#080e14" />
             ) : (
               <Text style={styles.actionBtnPrimaryText}>
-                ⚡ ARM TAKE (AUTOPILOT)
+                CREATE PAPER POLICIES
               </Text>
             )}
           </TouchableOpacity>

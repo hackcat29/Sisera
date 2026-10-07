@@ -158,8 +158,7 @@ export async function StockIntelligence() {
         </section>
       </div>
       <p className="px-6 pb-6 text-xs leading-5 text-slate-500">
-        A mark gap alone is not an arbitrage signal. Liquidity, redemption, transfer restrictions,
-        eligibility, underlying rights, and executable route are not verified by this view.
+        Indicative mark gap · execution and redemption unverified.
       </p>
     </div>
   );

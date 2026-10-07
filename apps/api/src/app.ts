@@ -90,6 +90,7 @@ import { DexScreenerClient } from "./platform/dexscreener.js";
 import { HistoryService } from "./platform/history.js";
 import { IntelligenceService } from "./platform/intelligence-service.js";
 import { LaunchError, LaunchService } from "./platform/launch-service.js";
+import { LiveBasisService } from "./platform/live-basis.js";
 import { MarketStateBuilder } from "./platform/market-state.js";
 import { MarketplaceService } from "./platform/marketplace-service.js";
 import { PolicyError, PolicyService } from "./platform/policy-service.js";
@@ -98,6 +99,7 @@ import { RankingService } from "./platform/rankings.js";
 import { registerPlatformRoutes } from "./platform/routes.js";
 import { PlatformScheduler } from "./platform/scheduler.js";
 import { SecEdgarClient } from "./platform/sec-edgar.js";
+import { ThematicResearchService } from "./platform/thematic-research.js";
 import { WalletLeaderboardService } from "./platform/wallet-leaderboard.js";
 import { PredictionPaperRejection, settlePredictionPaperOrder } from "./prediction-paper.js";
 import { researchPredictionMarket } from "./prediction-research.js";
@@ -684,6 +686,14 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     config.OPENROUTER_API_KEY && config.SISERA_INTELLIGENCE_MODEL
       ? new OpenRouterChat(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
       : null;
+  const basis = new LiveBasisService(config.BINANCE_SPOT_BASE_URL, config.HYPERLIQUID_BASE_URL);
+  const thematicResearch = new ThematicResearchService(
+    catalog,
+    intelligence,
+    history,
+    chat,
+    config.DATABASE_URL,
+  );
   const portfolioService = config.DATABASE_URL
     ? new PortfolioService(config.DATABASE_URL, catalog, helius, {
         cryptoSpot: async (symbol) => {
@@ -746,6 +756,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         trading: solanaTrading,
         helius,
         signer: delegatedSigner,
+        basis,
         liveAgentsEnabled: Boolean(config.SISERA_LIVE_AGENTS_ENABLED && solanaLiveReady),
         log: app.log,
       })
@@ -763,6 +774,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   const rankings = new RankingService(catalog, intelligence, portfolioService);
   const agentMarket = new AgentMarketService(catalog, clawpumpDirectory, solanaRpcUrl);
   const copilot = new CopilotService({
+    research: thematicResearch,
+    basis,
     databaseUrl: config.DATABASE_URL,
     catalog,
     intelligence,
@@ -782,6 +795,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       )
     : null;
   registerPlatformRoutes(app, config, {
+    research: thematicResearch,
+    basis,
     catalog,
     intelligence,
     rankings,

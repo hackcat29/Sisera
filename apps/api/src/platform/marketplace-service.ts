@@ -7,9 +7,14 @@ import {
   listStrategyLicenses,
   listStrategyListings,
   markStrategyPayment,
+  marketplaceEvidence,
+  marketplaceReputation,
   pendingStrategyCheckouts,
   publishStrategy,
   saveStrategyCheckout,
+  saveStrategyReview,
+  saveTradeProof,
+  strategyReviews,
   strategySales,
   unlistStrategy,
 } from "@sisera/db";
@@ -18,7 +23,50 @@ import { z } from "zod";
 import { AgentDraftInput, StoredAgentPolicy } from "../agent-governance.js";
 import { AgentError, type AgentService } from "./agent-service.js";
 import { USDC_MINT } from "./catalog.js";
+import { type EvidenceFill, strategyPerformance } from "./strategy-evidence.js";
 
+const MetricNumbers = z.record(z.number().finite().nullable());
+const GateSummary = z.object({
+  outcome: z.string(),
+  checks: z
+    .array(z.object({ name: z.string(), passed: z.boolean(), detail: z.string() }))
+    .optional(),
+});
+const PublicEvaluation = z.object({
+  engine: z.string().optional(),
+  feeBps: z.number().optional(),
+  stats: MetricNumbers.optional(),
+  gate: GateSummary.optional(),
+  scenarios: z.array(z.string()).optional(),
+  perSymbol: z
+    .array(
+      z.object({
+        entry: z.string(),
+        source: z.string().optional(),
+        basis: z.string().optional(),
+        years: z.number().optional(),
+        metrics: MetricNumbers.optional(),
+        gate: GateSummary.optional(),
+        outcome: z.string(),
+        results: z
+          .array(
+            z.object({
+              name: z.string().optional(),
+              scenario: z.string().optional(),
+              totalReturnPct: z.number().optional(),
+              maxDrawdownPct: z.number().optional(),
+              survived: z.boolean().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+export function publicEvaluation(raw: unknown) {
+  const value = PublicEvaluation.safeParse(raw);
+  return value.success ? value.data : null;
+}
 type Principal = Parameters<AgentService["create"]>[0];
 export const ListingInput = z
   .object({
@@ -139,37 +187,196 @@ export class MarketplaceService {
     private readonly agents: AgentService,
     rpcUrl: string,
   ) {
-    this.rpc = new Connection(rpcUrl, "confirmed");
+    this.rpc = new Connection(rpcUrl, {
+      commitment: "confirmed",
+      confirmTransactionInitialTimeout: 10000,
+    });
   }
   async browse(subject: string) {
-    const [listings, licenses, sales] = await Promise.all([
+    const [listings, licenses, sales, reputations] = await Promise.all([
       listStrategyListings(this.db),
       listStrategyLicenses(this.db, subject),
       strategySales(this.db, subject),
+      marketplaceReputation(this.db),
     ]);
     const owned = new Set(licenses.map((l) => String(l.listingId)));
-    return listings
-      .filter((l) => l.status === "published" || l.subject === subject || owned.has(l.id))
-      .map((l) => ({
-        id: l.id,
-        title: l.title,
-        description: l.description,
-        creatorName: l.creatorName,
-        category: l.category,
-        priceUsdc: l.priceUsdc,
-        version: l.manifestVersion,
-        status: l.status,
-        isCreator: l.subject === subject,
-        licensed: owned.has(l.id),
-        ...(l.subject === subject
-          ? {
-              sales: sales.find((s) => s.id === l.id)?.sales ?? 0,
-              earnedUsdc: sales.find((s) => s.id === l.id)?.earnedUsdc ?? 0,
-            }
-          : {}),
-        universe: AgentDraftInput.parse(l.draft).universe,
-        evaluation: "Research template; purchase does not grant live trading approval.",
-      }));
+    const visible = listings.filter(
+      (l) => l.status === "published" || l.subject === subject || owned.has(l.id),
+    );
+    const evidence = new Map(
+      await Promise.all(
+        visible.map(
+          async (l) => [l.id, await this.performance(l.agentId, l.manifestVersion)] as const,
+        ),
+      ),
+    );
+    const creatorStats = new Map<
+      string,
+      { listings: number; licenses: number; rating: number | null; reviews: number }
+    >();
+    for (const l of listings) {
+      const r = reputations.find((r) => r.id === l.id);
+      const c = creatorStats.get(l.subject) ?? {
+        listings: 0,
+        licenses: 0,
+        rating: null,
+        reviews: 0,
+      };
+      const count = Number(r?.reviewCount ?? 0);
+      const previous = c.reviews;
+      if (count)
+        c.rating =
+          ((c.rating ?? 0) * previous + Number(r?.rating ?? 0) * count) / (previous + count);
+      c.listings++;
+      c.licenses += Number(r?.licenses ?? 0);
+      c.reviews += count;
+      creatorStats.set(l.subject, c);
+    }
+    return visible.map((l) => ({
+      id: l.id,
+      title: l.title,
+      description: l.description,
+      creatorName: l.creatorName,
+      category: l.category,
+      priceUsdc: l.priceUsdc,
+      version: l.manifestVersion,
+      status: l.status,
+      isCreator: l.subject === subject,
+      licensed: owned.has(l.id),
+      ...(l.subject === subject
+        ? {
+            sales: sales.find((s) => s.id === l.id)?.sales ?? 0,
+            earnedUsdc: sales.find((s) => s.id === l.id)?.earnedUsdc ?? 0,
+          }
+        : {}),
+      universe: AgentDraftInput.parse(l.draft).universe,
+      evaluation: evidence.get(l.id)?.verified.trades
+        ? "Onchain history"
+        : evidence.get(l.id)?.live.trades
+          ? "Recorded live"
+          : "Research draft",
+      performance: evidence.get(l.id),
+      reputation: reputations.find((r) => r.id === l.id),
+      creator: creatorStats.get(l.subject),
+    }));
+  }
+  private async performance(agentId: string, version: string) {
+    const result = await marketplaceEvidence(this.db, agentId, version);
+    const fills = result.fills.map((f) => ({
+      ...f,
+      id: String(f.id),
+      mode: String(f.mode),
+      venue: String(f.venue),
+      instrumentKey: String(f.instrumentKey),
+      side: String(f.side),
+      quantity: Number(f.quantity),
+      priceUsd: Number(f.priceUsd),
+      feeUsd: Number(f.feeUsd),
+      signature: f.signature == null ? null : String(f.signature),
+      occurredAt: new Date(f.occurredAt).toISOString(),
+      verified: Boolean(f.verified),
+    })) as EvidenceFill[];
+    return {
+      live: strategyPerformance(fills.filter((f) => f.mode === "live")),
+      paper: strategyPerformance(fills.filter((f) => f.mode === "paper")),
+      verified: strategyPerformance(fills.filter((f) => f.mode === "live" && f.verified)),
+      evaluations: result.evaluations.map((e) => ({
+        id: e.id,
+        stage: e.stage,
+        outcome: e.outcome,
+        windowStart: e.windowStart,
+        windowEnd: e.windowEnd,
+        recordedAt: e.recordedAt,
+        engineRecorded: e.engineRecorded,
+        manifestHash: e.manifestHash,
+      })),
+      updatedAt: new Date().toISOString(),
+      coverage: "Recorded trade fees only; funding and unrecorded network costs excluded",
+    };
+  }
+  async detail(subject: string, id: string) {
+    const listing = await getStrategyListing(this.db, id);
+    const licensed = (await listStrategyLicenses(this.db, subject)).some((l) => l.listingId === id);
+    if (!listing || (listing.status !== "published" && listing.subject !== subject && !licensed))
+      throw new AgentError("Listing not found.", 404);
+    const evidence = await marketplaceEvidence(this.db, listing.agentId, listing.manifestVersion);
+    const pending = [
+      ...new Set(
+        evidence.fills
+          .filter(
+            (f) =>
+              f.mode === "live" &&
+              f.venue === "solana" &&
+              f.signature &&
+              /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(String(f.signature)) &&
+              !f.verified,
+          )
+          .map((f) => String(f.signature)),
+      ),
+    ].slice(0, 256);
+    if (pending.length) {
+      try {
+        const statuses = await this.rpc.getSignatureStatuses(pending, {
+          searchTransactionHistory: true,
+        });
+        for (const [i, status] of statuses.value.entries())
+          if (status?.confirmationStatus === "finalized" && !status.err) {
+            const signature = pending[i];
+            if (signature) await saveTradeProof(this.db, signature, status.slot);
+          }
+      } catch {
+        /* Verification remains unavailable instead of asserting success. */
+      }
+    }
+    const updated = await marketplaceEvidence(this.db, listing.agentId, listing.manifestVersion);
+    const [reviews, performance] = await Promise.all([
+      strategyReviews(this.db, id, subject),
+      this.performance(listing.agentId, listing.manifestVersion),
+    ]);
+    return {
+      id,
+      version: listing.manifestVersion,
+      performance,
+      reviews,
+      evaluations: updated.evaluations.map((e) => ({
+        id: e.id,
+        stage: e.stage,
+        outcome: e.outcome,
+        windowStart: e.windowStart,
+        windowEnd: e.windowEnd,
+        engineRecorded: e.engineRecorded,
+        evidence: publicEvaluation(e.evidence),
+      })),
+      trades: updated.fills.slice(-100).map((f) => ({
+        mode: f.mode,
+        symbol: f.symbol,
+        side: f.side,
+        quantity: f.quantity,
+        priceUsd: f.priceUsd,
+        feeUsd: f.feeUsd,
+        time: f.occurredAt,
+        verified: f.verified,
+        explorerUrl:
+          f.venue === "solana" && f.signature ? `https://solscan.io/tx/${f.signature}` : null,
+      })),
+      rules: licensed || listing.subject === subject ? AgentDraftInput.parse(listing.draft) : null,
+      canReview: licensed && listing.subject !== subject,
+    };
+  }
+  async review(subject: string, id: string, input: unknown) {
+    const review = z
+      .object({ rating: z.number().int().min(1).max(5), comment: z.string().trim().max(500) })
+      .strict()
+      .parse(input);
+    const listing = await getStrategyListing(this.db, id);
+    if (!listing) throw new AgentError("Listing not found.", 404);
+    if (
+      listing.subject === subject ||
+      !(await listStrategyLicenses(this.db, subject)).some((l) => l.listingId === id)
+    )
+      throw new AgentError("Only licensed buyers can review.", 403);
+    await saveStrategyReview(this.db, id, subject, review.rating, review.comment);
+    return { id };
   }
   async publish(principal: Principal, body: unknown) {
     const input = ListingInput.parse(body);

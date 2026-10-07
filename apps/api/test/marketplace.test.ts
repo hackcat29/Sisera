@@ -208,6 +208,70 @@ describe.skipIf(!db)("marketplace persistence and access", () => {
       });
       expect(listed.statusCode).toBe(201);
       const id = listed.json().data.id;
+      // Reviews require a license, and a creator cannot review their own strategy.
+      const review = (h: typeof headers, rating: number) =>
+        app.inject({
+          method: "POST",
+          url: `/v1/marketplace/${id}/reviews`,
+          headers: h,
+          payload: { rating, comment: "Disciplined rules" },
+        });
+      expect((await review(buyerHeaders, 5)).statusCode).toBe(403);
+      expect((await review(headers, 5)).statusCode).toBe(403);
+      // Proofs must match the canonical executed order and the listing's exact version.
+      const signatureBuy = `${Keypair.generate().publicKey.toBase58()}${Keypair.generate().publicKey.toBase58()}`;
+      const signatureSell = `${Keypair.generate().publicKey.toBase58()}${Keypair.generate().publicKey.toBase58()}`;
+      for (const [side, price, signature] of [
+        ["buy", 100, signatureBuy],
+        ["sell", 120, signatureSell],
+      ] as const) {
+        await pool(
+          db,
+        )`INSERT INTO agent_fills(tenant_id,subject,agent_id,manifest_version,mode,venue,asset_class,instrument_key,symbol,side,quantity,price_usd,fee_usd,signature,occurred_at)
+          SELECT tenant_id,owner_subject,id,version,'live','solana','public_equity',${token},'TOK',${side},1,999,0,${signature},${new Date(Date.now() - (side === "buy" ? 2000 : 1000)).toISOString()}
+          FROM agent_manifests WHERE id=${agentId} AND version='1.0.0'`;
+        await pool(
+          db,
+        )`INSERT INTO solana_swap_orders(id,tenant_id,subject,wallet,input_mint,output_mint,in_amount,out_amount,risk_decision,mode,status,signature,token_decimals,book)
+          SELECT ${crypto.randomUUID()},tenant_id,owner_subject,${creator.publicKey.toBase58()},${side === "buy" ? USDC_MINT : token},${side === "buy" ? token : USDC_MINT},
+          ${side === "buy" ? String(price * 1e6) : "1000000"},${side === "buy" ? "1000000" : String(price * 1e6)},'{}','live','confirmed',${signature},6,${`agent:${agentId}`}
+          FROM agent_manifests WHERE id=${agentId} AND version='1.0.0'`;
+      }
+      const proofStatus = vi.spyOn(Connection.prototype, "getSignatureStatuses").mockResolvedValue({
+        context: { slot: 7 },
+        value: [
+          { slot: 7, confirmations: 1, err: null, confirmationStatus: "confirmed" },
+          { slot: 7, confirmations: 1, err: null, confirmationStatus: "confirmed" },
+        ],
+      });
+      const evidence = () => app.inject({ url: `/v1/marketplace/${id}`, headers: buyerHeaders });
+      let detail = (await evidence()).json().data;
+      expect(detail.performance.live.feeAdjustedRealizedUsd).toBe(20);
+      expect(detail.performance.verified.trades).toBe(0);
+      expect(detail.rules).toBeNull();
+      proofStatus.mockResolvedValue({
+        context: { slot: 7 },
+        value: [
+          { slot: 7, confirmations: null, err: null, confirmationStatus: "finalized" },
+          { slot: 7, confirmations: null, err: null, confirmationStatus: "finalized" },
+        ],
+      });
+      detail = (await evidence()).json().data;
+      expect(detail.performance.verified.feeAdjustedRealizedUsd).toBe(20);
+      expect(detail.performance.verified.trades).toBe(2);
+      const revised = await app.inject({
+        method: "POST",
+        url: `/v1/agents/${encodeURIComponent(agentId)}/versions`,
+        headers,
+        payload: { ...input, name: "Revised momentum" },
+      });
+      expect(revised.statusCode, revised.body).toBe(201);
+      await pool(
+        db,
+      )`INSERT INTO agent_fills(tenant_id,subject,agent_id,manifest_version,mode,venue,asset_class,instrument_key,symbol,side,quantity,price_usd,fee_usd)
+        SELECT tenant_id,owner_subject,id,version,'paper','binance','crypto_spot','BTCUSDT','BTCUSDT','buy',1,100,0 FROM agent_manifests WHERE id=${agentId} AND version='1.1.0'`;
+      expect((await evidence()).json().data.performance.paper.trades).toBe(0);
+
       expect((await getStrategyListing(db, id))?.draft).not.toHaveProperty("liveWallet");
       const browse = await app.inject({ url: "/v1/marketplace", headers: buyerHeaders });
       expect(browse.statusCode, browse.body).toBe(200);
@@ -305,6 +369,13 @@ describe.skipIf(!db)("marketplace persistence and access", () => {
         db,
       )`SELECT count(*)::int AS count FROM strategy_licenses WHERE listing_id = ${id}`;
       expect(sales?.count).toBe(1);
+      expect((await review(buyerHeaders, 5)).statusCode).toBe(200);
+      expect((await review(buyerHeaders, 4)).statusCode).toBe(200);
+      const rated = await evidence();
+      expect(rated.json().data.reviews).toHaveLength(1);
+      expect(rated.json().data.reviews[0].rating).toBe(4);
+      expect(rated.json().data.rules).not.toHaveProperty("liveWallet");
+      expect((await review(headers, 5)).statusCode).toBe(403);
       const imported = await app.inject({
         method: "POST",
         url: `/v1/marketplace/${id}/import`,

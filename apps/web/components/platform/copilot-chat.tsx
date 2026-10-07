@@ -35,7 +35,7 @@ const EXAMPLES = [
   "What happens if I allocate $5,000 to NVDAx?",
   "Show me the strongest argument for and against buying Anthropic",
   "Which Clawpump agents are outperforming their paired stock?",
-  "Buy $2,000 of OpenAI if the premium falls below 3%, liquidity remains above my threshold, and no high-severity negative event appears.",
+  "Buy $2,000 of OpenAI if the premium falls below 3%.",
   "Build me a thematic take on humanoid robotics and automation",
   "Create a thesis basket on the AI compute and power grid squeeze",
   "Thematic take: Private AI labs vs public semiconductor giants",
@@ -214,10 +214,7 @@ function PolicyDraftCard({ data, onCreated }: { data: unknown; onCreated: () => 
       ))}
       {error && <Note tone="error">{error}</Note>}
       {state === "saved" ? (
-        <Note tone="positive">
-          Saved. Sisera evaluates it every 30 seconds; nothing executes outside its conditions and
-          your risk limits.
-        </Note>
+        <Note tone="positive">Policy saved.</Note>
       ) : (
         <div className="flex gap-2">
           <button
@@ -276,22 +273,22 @@ function CardView({ card, onPolicy }: { card: Card; onPolicy: () => void }) {
       const data = card.data as { bull: string[]; bear: string[] };
       return (
         <div className="grid gap-2 md:grid-cols-2">
-          <div className="border border-emerald-500/30 bg-ink p-3 text-xs text-slate-300">
-            <p className="data-label mb-1 text-emerald-300">For</p>
+          <details className="border border-emerald-500/30 bg-ink p-3 text-xs text-slate-300">
+            <summary className="cursor-pointer text-emerald-300">For · {data.bull.length}</summary>
             <ul className="list-inside list-disc space-y-1">
               {data.bull.slice(0, 5).map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
-          </div>
-          <div className="border border-rose-500/30 bg-ink p-3 text-xs text-slate-300">
-            <p className="data-label mb-1 text-rose-300">Against</p>
+          </details>
+          <details className="border border-rose-500/30 bg-ink p-3 text-xs text-slate-300">
+            <summary className="cursor-pointer text-rose-300">Against · {data.bear.length}</summary>
             <ul className="list-inside list-disc space-y-1">
               {data.bear.slice(0, 5).map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
-          </div>
+          </details>
         </div>
       );
     }
@@ -394,374 +391,386 @@ function BacktestResultCard({ data }: { data: unknown }) {
   );
 }
 
-function TakeCard({ data, onArmed }: { data: unknown; onArmed: () => void }) {
-  const take = data as {
-    id: string;
-    title: string;
-    slug: string;
-    thesis: string;
-    macroTheme: string;
-    targetTotalNotionalUsd: number;
-    constituents: Array<{
-      symbol: string;
-      name: string;
-      category: string;
-      weightPct: number;
-      targetNotionalUsd: number;
-      entryTriggers: Array<{ type: string } & Record<string, unknown>>;
-      invalidationRules: Array<{ type: string } & Record<string, unknown>>;
-      rationale: string;
+type ResearchTake = {
+  id: string;
+  title: string;
+  thesis: string;
+  targetTotalNotionalUsd: number;
+  cashWeightPct?: number;
+  cashNotionalUsd?: number;
+  constituents: Array<{
+    symbol: string;
+    name: string;
+    weightPct: number;
+    targetNotionalUsd: number;
+    rationale: string;
+    counterpoints?: string[];
+    evidenceIds?: string[];
+  }>;
+  metrics: { estimatedSharpe: number | null; estimatedVol30dPct: number | null };
+  stressScenarios: Record<string, number>;
+  research?: {
+    asOf: string;
+    expiresAt: string;
+    method: string;
+    historyBasis: string;
+    historyObservations: number;
+    sources: Array<{
+      id: string;
+      url: string;
+      title: string;
+      publisher: string;
+      certainty: string;
     }>;
-    riskGuardrails: {
-      maxDailyDrawdownPct: number;
-      requireNoCriticalEvent: boolean;
-      secFilingAware: boolean;
-    };
-    autopilot: boolean;
-    stressScenarios: {
-      equitySelloffPct: number;
-      privateMarkResetPct: number;
-      cryptoCrashPct: number;
-      liquidityFreezePct: number;
-      weekendGapPct: number;
-    };
-    metrics: {
-      estimatedSharpe: number;
-      estimatedVol30dPct: number;
-      effectivePositions: number;
-      diversificationScore: number;
-    };
+    excluded: Array<{ key: string; reason: string }>;
   };
-
+};
+function TakeCard({ data, onArmed }: { data: unknown; onArmed: () => void }) {
+  const initial = data as ResearchTake;
+  const [take, setTake] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [weights, setWeights] = useState<Record<string, string>>({});
+  const [armed, setArmed] = useState(false);
   const signer = useSolanaSigner();
-  const [state, setState] = useState<"idle" | "arming" | "armed" | "tokenizing" | "tokenized">(
-    "idle",
-  );
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [tokenizedSpec, setTokenizedSpec] = useState<{
-    tokenSymbol: string;
-    tokenName: string;
-    pairedStock: string;
-  } | null>(null);
-
-  if (!take || !take.constituents) return null;
-
-  const armTake = async () => {
-    setState("arming");
-    setFeedback(null);
+  if (!take?.constituents) return null;
+  async function action(kind: "arm" | "fork" | "tokenize" | "compile") {
+    setBusy(true);
+    setFeedback("");
     try {
-      const res = await platform<{ armedCount: number }>("takes/arm", {
-        body: {
-          take,
-          mode: "paper",
-          wallet: signer.address ?? null,
-        },
-      });
-      setState("armed");
-      setFeedback(
-        `Armed ${res.armedCount} constituent policies under 24/7 Autopilot. SEC EDGAR and news guards active.`,
-      );
-      onArmed();
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Failed to arm take policies.");
-      setState("idle");
+      if (kind === "arm") {
+        const result = await platform<{ armedCount: number }>("takes/arm", {
+          body: { takeId: take.id, mode: "paper", wallet: signer.address ?? null },
+        });
+        setArmed(true);
+        setFeedback(`${result.armedCount} paper policies active.`);
+        onArmed();
+      } else if (kind === "fork") {
+        const result = await platform<ResearchTake>("takes/fork", {
+          body: {
+            takeId: take.id,
+            constituentTweaks: take.constituents.map((c) => ({
+              symbol: c.symbol,
+              weightPct: Number(weights[c.symbol] ?? c.weightPct),
+            })),
+          },
+        });
+        setTake(result);
+        setWeights({});
+        setArmed(false);
+        setFeedback("Allocation saved.");
+      } else if (kind === "compile") {
+        const result = await platform<ResearchTake>("takes/compile", {
+          body: { text: take.thesis, totalNotionalUsd: take.targetTotalNotionalUsd },
+        });
+        setTake(result);
+        setArmed(false);
+        setFeedback("Research refreshed.");
+      } else {
+        const result = await platform<{ tokenSymbol: string; pairedStock: string }>(
+          "takes/tokenize",
+          { body: { takeId: take.id } },
+        );
+        window.location.assign(
+          `/launch?symbol=${encodeURIComponent(result.tokenSymbol)}&pair=${encodeURIComponent(result.pairedStock)}`,
+        );
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setBusy(false);
     }
-  };
-
-  const tokenizeTake = async () => {
-    setState("tokenizing");
-    setFeedback(null);
-    try {
-      const res = await platform<{ tokenSymbol: string; tokenName: string; pairedStock: string }>(
-        "takes/tokenize",
-        {
-          body: { take },
-        },
-      );
-      setTokenizedSpec(res);
-      setState("tokenized");
-      setFeedback(
-        `Take tokenized spec created! Symbol ${res.tokenSymbol} anchored against ${res.pairedStock}.`,
-      );
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Failed to tokenize take.");
-      setState("idle");
-    }
-  };
-
+  }
+  const expired = take.research && Date.parse(take.research.expiresAt) < Date.now();
   return (
-    <div className="border border-bronze-500/40 bg-ink p-4 space-y-3.5 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-base font-bold text-slate-100">{take.title}</span>
-            <span className="border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-300">
-              ⚡ AUTOPILOT ACTIVE
-            </span>
-            <span className="border border-bronze-500/40 bg-bronze-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-bronze-300">
-              DBC READY
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            {take.macroTheme} · Target Capital: ${take.targetTotalNotionalUsd.toLocaleString()} ·
-            SEC EDGAR 8-K Verified
-          </p>
-        </div>
-        <div className="text-right font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Est. Sharpe</span>
-          <p className="text-sm font-bold text-emerald-400">
-            {take.metrics.estimatedSharpe.toFixed(2)}
-          </p>
-        </div>
+    <div className="space-y-3 border border-bronze-500/40 bg-ink p-4 text-xs">
+      <div className="flex flex-wrap justify-between gap-2">
+        <h3 className="font-semibold text-bone">{take.title}</h3>
+        <span className="text-bronze-300">
+          {armed ? "Paper active" : expired ? "Expired" : "Research draft"}
+        </span>
       </div>
-
-      <div className="bg-surface/60 border border-line/60 p-2.5 text-slate-300 leading-relaxed italic text-[11px]">
-        "{take.thesis}"
+      <div className="flex flex-wrap gap-4 text-slate-400">
+        <span>${take.targetTotalNotionalUsd.toLocaleString()}</span>
+        <span>Historical basket Sharpe: {take.metrics.estimatedSharpe?.toFixed(2) ?? "—"}</span>
+        <span>30d volatility: {take.metrics.estimatedVol30dPct?.toFixed(1) ?? "—"}%</span>
       </div>
-
-      <div className="space-y-1.5">
-        <p className="data-label text-bronze-300">Multi-Asset Allocation & Conditions</p>
-        <div className="overflow-x-auto border border-line">
-          <table className="w-full text-left text-[11px]">
-            <thead className="border-b border-line bg-surface/40 text-[10px] uppercase text-slate-500">
-              <tr>
-                <th className="px-2.5 py-1.5 font-medium">Asset</th>
-                <th className="px-2.5 py-1.5 font-medium">Category</th>
-                <th className="px-2.5 py-1.5 font-medium">Weight</th>
-                <th className="px-2.5 py-1.5 font-medium">Target $</th>
-                <th className="px-2.5 py-1.5 font-medium">Autopilot Rules</th>
-                <th className="px-2.5 py-1.5 font-medium">Thesis Rationale</th>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="text-slate-500">
+            <tr>
+              <th>Asset</th>
+              <th>Weight</th>
+              <th>Capital</th>
+              <th>Sources</th>
+            </tr>
+          </thead>
+          <tbody>
+            {take.constituents.map((c) => (
+              <tr key={c.symbol} className="border-t border-line">
+                <td className="py-2 text-bone">{c.symbol}</td>
+                <td>{c.weightPct}%</td>
+                <td>${c.targetNotionalUsd.toLocaleString()}</td>
+                <td>{c.evidenceIds?.length ?? 0}</td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-line/40 font-mono text-slate-300">
-              {take.constituents.map((c) => (
-                <tr key={c.symbol} className="hover:bg-surface/30">
-                  <td className="px-2.5 py-1.5 font-bold text-slate-100">{c.symbol}</td>
-                  <td className="px-2.5 py-1.5 text-[10px]">
-                    <span className="border border-line px-1 py-0.5 text-slate-400">
-                      {c.category.replace(/_/g, " ").toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-2.5 py-1.5 font-bold text-bronze-300">{c.weightPct}%</td>
-                  <td className="px-2.5 py-1.5">${c.targetNotionalUsd.toLocaleString()}</td>
-                  <td className="px-2.5 py-1.5 text-[10px] font-sans text-slate-400">
-                    {c.entryTriggers.length
-                      ? c.entryTriggers.map((t) => describeCondition(t)).join(", ")
-                      : "Sourced Entry"}
-                  </td>
-                  <td
-                    className="px-2.5 py-1.5 text-[10px] font-sans text-slate-400 max-w-[200px] truncate"
-                    title={c.rationale}
-                  >
-                    {c.rationale}
-                  </td>
-                </tr>
+            ))}
+            {(take.cashWeightPct ?? 0) > 0 && (
+              <tr className="border-t border-line text-slate-400">
+                <td className="py-2">Unallocated cash</td>
+                <td>{take.cashWeightPct}%</td>
+                <td>${take.cashNotionalUsd?.toLocaleString()}</td>
+                <td>—</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <details className="border-t border-line pt-2">
+        <summary className="cursor-pointer text-bronze-200">Evidence & risks</summary>
+        <div className="mt-3 space-y-3 text-slate-400">
+          <p>{take.thesis}</p>
+          {take.constituents.map((c) => (
+            <div key={c.symbol}>
+              <strong className="text-bone">{c.symbol}</strong>
+              <p>{c.rationale}</p>
+              {c.counterpoints?.map((point) => (
+                <p key={point} className="text-amber-200">
+                  {point}
+                </p>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ))}
+          <p>
+            {take.research?.method} ·{" "}
+            {take.research?.asOf && new Date(take.research.asOf).toLocaleString()}
+          </p>
+          <p>
+            {take.research?.historyObservations ?? 0} common daily observations ·{" "}
+            {take.research?.historyBasis}
+          </p>
+          <div className="space-y-2">
+            {take.research?.sources.map((source, i) => (
+              <a
+                key={`${source.id}-${i}`}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-bronze-200"
+              >
+                {source.title}{" "}
+                <span className="text-slate-500">
+                  · {source.publisher} · {source.certainty}
+                </span>
+              </a>
+            ))}
+          </div>
+          <details>
+            <summary className="cursor-pointer">Scenario assumptions</summary>
+            {Object.entries(take.stressScenarios).map(([name, value]) => (
+              <p key={name}>
+                {name.replace(/Pct$/, " ").replace(/([A-Z])/g, " $1")}: {value}%
+              </p>
+            ))}
+          </details>
+          {take.research?.excluded.length ? (
+            <details>
+              <summary className="cursor-pointer">Excluded assets</summary>
+              {take.research.excluded.map((c) => (
+                <p key={c.key}>
+                  {c.key} · {c.reason}
+                </p>
+              ))}
+            </details>
+          ) : null}
         </div>
-      </div>
-
-      <div className="space-y-1.5">
-        <p className="data-label text-slate-400">
-          Scenario Stress Test Matrix & Quantitative Bounds
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-center">
-          <div className="bg-surface p-2 border border-line/60">
-            <p className="text-[9px] text-slate-500 uppercase">Equity Selloff (-15%)</p>
-            <p className="text-xs font-bold text-rose-400">
-              {take.stressScenarios.equitySelloffPct}%
-            </p>
-          </div>
-          <div className="bg-surface p-2 border border-line/60">
-            <p className="text-[9px] text-slate-500 uppercase">Private Reset (-25%)</p>
-            <p className="text-xs font-bold text-rose-400">
-              {take.stressScenarios.privateMarkResetPct}%
-            </p>
-          </div>
-          <div className="bg-surface p-2 border border-line/60">
-            <p className="text-[9px] text-slate-500 uppercase">Crypto Crash (-20%)</p>
-            <p className="text-xs font-bold text-rose-400">
-              {take.stressScenarios.cryptoCrashPct}%
-            </p>
-          </div>
-          <div className="bg-surface p-2 border border-line/60">
-            <p className="text-[9px] text-slate-500 uppercase">Diversification</p>
-            <p className="text-xs font-bold text-emerald-400">
-              {take.metrics.diversificationScore}/100 ({take.metrics.effectivePositions} eff)
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {feedback && (
-        <Note tone={state === "armed" || state === "tokenized" ? "positive" : "warning"}>
-          {feedback}
-        </Note>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-line/60">
-        <div className="flex gap-2">
-          {state !== "armed" && (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={state === "arming"}
-              onClick={armTake}
-            >
-              {state === "arming" ? "Arming Autopilot..." : "⚡ Arm Take (Autopilot)"}
-            </button>
-          )}
-          {state !== "tokenized" && (
-            <button
-              type="button"
-              className={ghostButtonClass}
-              disabled={state === "tokenizing"}
-              onClick={tokenizeTake}
-            >
-              {state === "tokenizing" ? "Tokenizing..." : "🚀 Tokenize on Meteora DBC"}
-            </button>
-          )}
-        </div>
-        {tokenizedSpec && (
-          <Link
-            href={`/launch?symbol=${tokenizedSpec.tokenSymbol}&pair=${tokenizedSpec.pairedStock}`}
-            className="text-[10px] text-bronze-300 underline font-mono hover:text-bronze-200"
+      </details>
+      <details>
+        <summary className="cursor-pointer text-bronze-200">Edit allocation</summary>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {take.constituents.map((c) => (
+            <label key={c.symbol} className="text-slate-400">
+              {c.symbol}
+              <input
+                aria-label={`${c.symbol} weight`}
+                type="number"
+                min="1"
+                max="50"
+                value={weights[c.symbol] ?? c.weightPct}
+                onChange={(e) => setWeights({ ...weights, [c.symbol]: e.target.value })}
+                className="ml-2 w-16 border border-line bg-ink p-1"
+              />
+            </label>
+          ))}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void action("fork")}
+            className={buttonClass}
           >
-            Open in Launch Studio ({tokenizedSpec.tokenSymbol}) →
-          </Link>
-        )}
+            Save fork
+          </button>
+        </div>
+      </details>
+      {feedback && <Note>{feedback}</Note>}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={buttonClass}
+          disabled={busy || armed || Boolean(expired)}
+          onClick={() => void action("arm")}
+        >
+          Create paper policies
+        </button>
+        <button
+          type="button"
+          className={ghostButtonClass}
+          disabled={busy}
+          onClick={() => void action("compile")}
+        >
+          Refresh research
+        </button>
+        <button
+          type="button"
+          className={ghostButtonClass}
+          disabled={busy || Boolean(expired)}
+          onClick={() => void action("tokenize")}
+        >
+          Prepare launch
+        </button>
       </div>
     </div>
   );
 }
 
+type BasisQuote = {
+  id: string;
+  asset: string;
+  spotVenue: string;
+  perpVenue: string;
+  fundingRateAprPct: number;
+  netYieldAprPct: number;
+  observedAt: string;
+  expectedNetUsd: number;
+  quoteNotionalUsd: number;
+  availableNotionalUsd: number;
+  roundTripFeeBps: number;
+  estimatedEntrySpreadCostBps: number;
+  holdingDays: number;
+  status: string;
+  settlementBasis: string;
+  spotPriceUsd: number;
+  perpPriceUsd: number;
+  requiredCapitalUsd: number;
+  netReturnOnCapitalAprPct: number;
+};
 function BasisArbitrageCard({ data }: { data: unknown }) {
-  const payload = data as {
-    opportunities: Array<{
-      id: string;
-      asset: string;
-      spotVenue: string;
-      perpVenue: string;
-      spotPriceUsd: number;
-      perpPriceUsd: number;
-      basisSpreadBps: number;
-      fundingRateAprPct: number;
-      borrowCostAprPct: number;
-      netYieldAprPct: number;
-      liquidationBufferPct: number;
-      recommendedLeverage: number;
-      status: string;
-    }>;
-    recommended?: {
-      asset: string;
-      netYieldAprPct: number;
-      spotVenue: string;
-      perpVenue: string;
-    };
-    suggestedNotionalUsd: number;
-  };
-
-  const [armingAsset, setArmingAsset] = useState<string | null>(null);
-  const [armedStatus, setArmedStatus] = useState<Record<string, string>>({});
-
-  if (!payload || !payload.opportunities) return null;
-
-  const handleArm = async (asset: string, notional: number) => {
-    setArmingAsset(asset);
+  const payload = data as { opportunities: BasisQuote[]; suggestedNotionalUsd: number };
+  const [quotes, setQuotes] = useState(payload?.opportunities ?? []);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  async function refresh() {
+    setBusy(true);
     try {
-      const res = await fetch("/api/platform/arbitrage/arm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ asset, notionalUsd: notional, maxLeverage: 2 }),
-      });
-      if (res.ok) {
-        setArmedStatus((prev) => ({ ...prev, [asset]: "Armed (POLICY_AUTO Level 3)" }));
-      } else {
-        setArmedStatus((prev) => ({ ...prev, [asset]: "Arming failed" }));
-      }
-    } catch {
-      setArmedStatus((prev) => ({ ...prev, [asset]: "Arming error" }));
+      setQuotes(
+        await platform<BasisQuote[]>(`arbitrage/basis?notionalUsd=${payload.suggestedNotionalUsd}`),
+      );
+      setFeedback("");
+    } catch (error) {
+      setQuotes([]);
+      setFeedback(error instanceof Error ? error.message : "Quotes unavailable.");
     } finally {
-      setArmingAsset(null);
+      setBusy(false);
     }
-  };
-
+  }
+  async function draft(asset: string) {
+    setBusy(true);
+    try {
+      await platform("arbitrage/arm", {
+        body: { asset, notionalUsd: payload.suggestedNotionalUsd, maxLeverage: 1 },
+      });
+      setFeedback("Research draft created.");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <div className="space-y-3 border border-emerald-500/40 bg-surface/90 p-4 font-mono text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2">
-        <div className="flex items-center gap-2">
-          <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 text-[10px] uppercase font-bold border border-emerald-500/30">
-            Delta-Neutral Cash & Carry
-          </span>
-          <span className="text-slate-400 text-[11px]">Zero Directional Beta</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-500">Suggested Capital:</span>
-          <span className="text-emerald-300 font-bold">
-            ${payload.suggestedNotionalUsd?.toLocaleString() ?? "10,000"}
-          </span>
-        </div>
+    <div className="space-y-3 border border-line bg-ink p-4 text-xs">
+      <div className="flex justify-between">
+        <h3 className="text-bone">
+          Funding carry · ${payload.suggestedNotionalUsd?.toLocaleString()} per leg
+        </h3>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void refresh()}
+          className={ghostButtonClass}
+        >
+          Refresh quotes
+        </button>
       </div>
-
-      <div className="space-y-1.5">
-        <p className="data-label text-emerald-300">Live Cross-Venue Funding Rate Opportunities</p>
-        <div className="overflow-x-auto border border-line">
-          <table className="w-full text-left text-[11px]">
-            <thead className="border-b border-line bg-surface/40 text-[10px] uppercase text-slate-500">
-              <tr>
-                <th className="px-2.5 py-1.5 font-medium">Asset</th>
-                <th className="px-2.5 py-1.5 font-medium">Legs</th>
-                <th className="px-2.5 py-1.5 font-medium">Perp Funding</th>
-                <th className="px-2.5 py-1.5 font-medium">Borrow Cost</th>
-                <th className="px-2.5 py-1.5 font-medium">Net APR</th>
-                <th className="px-2.5 py-1.5 font-medium">Liq. Buffer</th>
-                <th className="px-2.5 py-1.5 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/40 text-slate-300">
-              {payload.opportunities.map((opp) => (
-                <tr key={opp.id} className="hover:bg-surface/30">
-                  <td className="px-2.5 py-1.5 font-bold text-slate-100">{opp.asset}</td>
-                  <td className="px-2.5 py-1.5 text-[10px] text-slate-400">
-                    +{opp.spotVenue} / -{opp.perpVenue}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="text-slate-500">
+            <tr>
+              <th>Asset</th>
+              <th>Funding APR</th>
+              <th>Capital APR</th>
+              <th>30d carry</th>
+              <th>Age</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {quotes.map((q) => {
+              const age = Math.max(0, (now - Date.parse(q.observedAt)) / 1000);
+              return (
+                <tr key={q.id} className="border-t border-line">
+                  <td className="py-2 text-bone">{q.asset}</td>
+                  <td>{q.fundingRateAprPct.toFixed(1)}%</td>
+                  <td>{q.netReturnOnCapitalAprPct.toFixed(1)}%</td>
+                  <td>${q.expectedNetUsd.toFixed(2)}</td>
+                  <td className={age > 10 ? "text-amber-200" : "text-slate-400"}>
+                    {age > 10 ? "Stale" : `${age.toFixed(0)}s`}
                   </td>
-                  <td className="px-2.5 py-1.5 text-emerald-400">
-                    +{opp.fundingRateAprPct.toFixed(1)}%
-                  </td>
-                  <td className="px-2.5 py-1.5 text-rose-400">
-                    -{opp.borrowCostAprPct.toFixed(1)}%
-                  </td>
-                  <td className="px-2.5 py-1.5 font-bold text-emerald-300">
-                    +{opp.netYieldAprPct.toFixed(1)}%
-                  </td>
-                  <td className="px-2.5 py-1.5 text-slate-400">{opp.liquidationBufferPct}%</td>
-                  <td className="px-2.5 py-1.5">
-                    {armedStatus[opp.asset] ? (
-                      <span className="text-[10px] text-emerald-400 font-bold">
-                        {armedStatus[opp.asset]}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 text-[10px] font-bold"
-                        disabled={armingAsset === opp.asset}
-                        onClick={() => handleArm(opp.asset, payload.suggestedNotionalUsd || 10_000)}
-                      >
-                        {armingAsset === opp.asset ? "Deploying..." : "⚡ Deploy Harvester"}
-                      </button>
-                    )}
+                  <td>
+                    <button
+                      type="button"
+                      disabled={busy || age > 10 || q.status === "unfavorable"}
+                      onClick={() => void draft(q.asset)}
+                      className={buttonClass}
+                    >
+                      Create draft
+                    </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      <p className="text-[10px] text-slate-500">
-        Pre-trade risk engine continuously guards margin ratios across Hyperliquid and Solana
-        liquidity pools.
-      </p>
+      {!quotes.length && <p className="text-slate-400">No fresh quotes with sufficient depth.</p>}
+      <details>
+        <summary className="cursor-pointer text-bronze-200">Quote details</summary>
+        <div className="mt-2 space-y-2 text-slate-400">
+          <p>Variable funding · 1× margin · modeled fees · basis risk.</p>
+          {quotes.map((q) => (
+            <p key={q.id}>
+              {q.asset}: {q.spotVenue} ${q.spotPriceUsd.toFixed(2)} / {q.perpVenue} $
+              {q.perpPriceUsd.toFixed(2)} · depth ${q.availableNotionalUsd.toFixed(0)} · fees{" "}
+              {q.roundTripFeeBps} bps · spread {q.estimatedEntrySpreadCostBps.toFixed(1)} bps ·{" "}
+              {q.settlementBasis}
+            </p>
+          ))}
+        </div>
+      </details>
+      {feedback && <Note>{feedback}</Note>}
     </div>
   );
 }
@@ -769,6 +778,14 @@ function BasisArbitrageCard({ data }: { data: unknown }) {
 /** Sisera AI: evidence-backed answers and conversational policies that never trade on their own. */
 export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [savedResearch, setSavedResearch] = useState<Array<{ id: string; report: ResearchTake }>>(
+    [],
+  );
+  useEffect(() => {
+    void platform<Array<{ id: string; report: ResearchTake }>>("takes")
+      .then(setSavedResearch)
+      .catch(() => {});
+  }, []);
   const [input, setInput] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -796,6 +813,10 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
         body: { message, history, contextAssetKey: contextAsset, threadId, mode },
       });
       if (reply.asset) setContextAsset(reply.asset.key);
+      if (reply.cards.some((c) => c.type === "take_card"))
+        void platform<Array<{ id: string; report: ResearchTake }>>("takes")
+          .then(setSavedResearch)
+          .catch(() => {});
       setMessages((current) => [...current, { role: "assistant", content: reply.answer, reply }]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Sisera AI is unavailable.");
@@ -834,12 +855,25 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
           </label>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          {savedResearch.length > 0 && (
+            <details className="border border-line p-3 text-xs">
+              <summary className="cursor-pointer text-bronze-200">
+                Saved research · {savedResearch.length}
+              </summary>
+              <div className="mt-3 space-y-2">
+                {savedResearch.map((r) => (
+                  <details key={r.id}>
+                    <summary className="cursor-pointer text-slate-300">{r.report.title}</summary>
+                    <div className="mt-2">
+                      <TakeCard data={r.report} onArmed={() => setPolicyRefresh((v) => v + 1)} />
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </details>
+          )}
           {messages.length === 0 && (
             <div>
-              <p className="text-sm text-slate-300">
-                Ask about any stock, private company, agent token or your portfolio. Conditional
-                trades become policies you review before anything is armed.
-              </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {EXAMPLES.map((example) => (
                   <button
@@ -862,7 +896,17 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
               <div
                 className={`whitespace-pre-line border p-3 text-[13px] leading-6 ${message.role === "user" ? "border-bronze-500/40 bg-bronze-500/10 text-bone" : "border-line bg-ink text-slate-200"}`}
               >
-                {message.content}
+                {message.role === "assistant" && message.content.length > 280 ? (
+                  <>
+                    <span>{message.content.slice(0, 280)}…</span>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-bronze-200">Read analysis</summary>
+                      <p>{message.content}</p>
+                    </details>
+                  </>
+                ) : (
+                  message.content
+                )}
               </div>
               {message.reply && (
                 <div className="mt-2 space-y-2">
@@ -873,10 +917,6 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
                       onPolicy={() => setPolicyRefresh((value) => value + 1)}
                     />
                   ))}
-                  <p className="font-mono text-[10px] text-slate-600">
-                    {message.reply.intent.replace("_", " ")} · {message.reply.provenance.model} ·{" "}
-                    {message.reply.provenance.sources.join(", ")}
-                  </p>
                 </div>
               )}
             </div>
@@ -912,12 +952,6 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
       </section>
       <div className="space-y-4">
         <PolicyList refreshKey={policyRefresh} />
-        <Note>
-          Sisera AI reads market data, events, and your portfolio. It cannot sign or place orders.
-          Policies are compiled deterministically, validated against your limits, and executed only
-          through Sisera’s risk checks — live orders still need your wallet signature unless you
-          delegated signing.
-        </Note>
       </div>
     </div>
   );

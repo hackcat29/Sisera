@@ -339,7 +339,22 @@ export class AssetCatalog {
       const tickers = [asset.symbol, asset.kind === "public_equity" ? asset.underlying : ""].filter(
         (value) => value.length >= 2,
       );
-      for (const ticker of tickers)
+      for (const ticker of tickers) {
+        const ambiguous = [
+          "on",
+          "it",
+          "at",
+          "ai",
+          "as",
+          "all",
+          "for",
+          "are",
+          "so",
+          "now",
+          "net",
+          "open",
+        ].includes(ticker.toLowerCase());
+        if (ambiguous && text.trim() !== ticker && !text.includes(`$${ticker}`)) continue;
         if (
           new RegExp(
             `(?:\\$|\\b)${ticker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
@@ -347,6 +362,7 @@ export class AssetCatalog {
           ).test(text)
         )
           score = Math.max(score, ticker === asset.symbol ? 3 : 2.5);
+      }
       const name = asset.name
         .replace(/\b(inc|corp|corporation|xstock|class [a-z])\b\.?/gi, "")
         .trim();

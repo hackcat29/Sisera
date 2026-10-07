@@ -192,8 +192,7 @@ export function BridgeUsdc() {
       <p className="eyebrow">Cross-chain funding</p>
       <h2 className="mt-2 text-base font-semibold text-slate-100">Bridge USDC in Sisera</h2>
       <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-400">
-        Move USDC from an EVM wallet on Base, Arbitrum or Ethereum to your HyperEVM or Solana
-        wallet. The quote comes from Relay; your wallet signs every source-chain transaction.
+        Bridge USDC · wallet signature required.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <label className="text-xs text-slate-400">

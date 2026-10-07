@@ -71,10 +71,7 @@ export default async function ActivityPage() {
               <h2 className="text-base font-semibold text-white">
                 Your activity starts with a reviewed order
               </h2>
-              <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-400">
-                Explore a market, review a paper trade, and submit it to create an auditable order
-                record. No account orders have been recorded yet.
-              </p>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-400">No orders recorded.</p>
               <div className="mt-4 flex flex-wrap gap-3 text-xs">
                 <Link
                   href="/stocks"

@@ -81,9 +81,7 @@ export function WorkspaceSettings() {
       )}
       <section className="border border-line bg-panel p-5">
         <h2 className="text-sm font-semibold text-white">Market refresh</h2>
-        <p className="mt-2 text-xs text-slate-400">
-          Choose how often open market views refresh while this tab is visible.
-        </p>
+
         <select
           value={interval}
           disabled={!ready || saving}
@@ -107,10 +105,6 @@ export function WorkspaceSettings() {
           />
           Show failed and uncertain order alerts
         </label>
-        <p className="mt-3 text-[11px] text-slate-500">
-          Preferences are saved to your Sisera account. Order status still appears in Activity;
-          delayed bridge alerts remain visible.
-        </p>
       </section>
     </div>
   );

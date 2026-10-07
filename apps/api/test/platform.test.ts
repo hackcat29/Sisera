@@ -3,10 +3,41 @@ import { AgentDraftInput, compileAgentDraft } from "../src/agent-governance.js";
 import { buildApi } from "../src/app.js";
 import { ClawpumpClient } from "../src/clawpump.js";
 import { readConfig } from "../src/config.js";
+import { AssetCatalog } from "../src/platform/catalog.js";
 import { classifyIntent } from "../src/platform/copilot-service.js";
 import { DBC_PRESETS, DbcLaunchInput, DbcService } from "../src/platform/dbc.js";
+import { LiveBasisService } from "../src/platform/live-basis.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("asset references", () => {
+  it("does not interpret common words as stock tickers", async () => {
+    const catalog = {
+      list: async () => [
+        {
+          key: "ONx",
+          symbol: "ONx",
+          underlying: "ON",
+          kind: "public_equity",
+          name: "ON Semiconductor Corp",
+          liquidityUsd: 1e6,
+        },
+      ],
+    } as unknown as AssetCatalog;
+    expect(
+      await AssetCatalog.prototype.resolveText.call(catalog, "Show funding carry on $5,000"),
+    ).toBeNull();
+    expect((await AssetCatalog.prototype.resolveText.call(catalog, "Research ONx"))?.symbol).toBe(
+      "ONx",
+    );
+    expect((await AssetCatalog.prototype.resolveText.call(catalog, "Research $ON"))?.symbol).toBe(
+      "ONx",
+    );
+  });
+});
 
 describe("Sisera AI routing", () => {
   it("routes the questions from the product brief to their evidence builders", () => {
@@ -27,6 +58,7 @@ describe("Sisera AI routing", () => {
     );
     expect(classifyIntent("Buy $2,000 if the premium falls below 3%")).toBe("policy");
     expect(classifyIntent("Rank pre-IPO companies by liquidity")).toBe("private_ranking");
+    expect(classifyIntent("Show funding carry on $5,000")).toBe("basis_arbitrage");
     expect(classifyIntent("Backtest an RSI strategy on NVDAx")).toBe("backtest");
     expect(classifyIntent("Simulate agent performance over the last 2 years")).toBe("backtest");
     expect(classifyIntent("Build me a thematic take on humanoid robotics and automation")).toBe(
@@ -233,75 +265,55 @@ describe("platform routes", () => {
     await app.close();
   });
 
-  it("compiles and tokenizes thematic takes", async () => {
-    const app = await buildApi(
-      readConfig({
-        NODE_ENV: "test",
-        LOG_LEVEL: "silent",
-        SISERA_ALLOW_DEV_AUTH: "true",
-      }),
+  it("does not invent research when source data is missing", async () => {
+    vi.spyOn(AssetCatalog.prototype, "list").mockResolvedValue([]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json([])),
     );
-    const compileRes = await app.inject({
-      method: "POST",
-      url: "/v1/takes/compile",
-      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
-      payload: {
-        text: "Thematic take on humanoid robotics and automation",
-        totalNotionalUsd: 10_000,
-      },
-    });
-    expect(compileRes.statusCode).toBe(200);
-    const take = compileRes.json().data;
-    expect(take.title).toContain("Humanoid Robotics");
-    expect(take.constituents.length).toBeGreaterThanOrEqual(3);
-
-    const tokenizeRes = await app.inject({
-      method: "POST",
-      url: "/v1/takes/tokenize",
-      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
-      payload: { take },
-    });
-    expect(tokenizeRes.statusCode).toBe(200);
-    const tokenization = tokenizeRes.json().data;
-    expect(tokenization.curvePreset).toBe("reference_anchored");
-    expect(tokenization.tokenSymbol).toMatch(/^TKE/);
-    await app.close();
+    const app = await buildApi(
+      readConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", SISERA_ALLOW_DEV_AUTH: "true" }),
+    );
+    const headers = { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" };
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/takes/compile",
+        headers,
+        payload: { text: "Robotics basket" },
+      });
+      expect(response.statusCode, response.body).toBe(422);
+      const forged = await app.inject({
+        method: "POST",
+        url: "/v1/takes/tokenize",
+        headers,
+        payload: { take: { id: "take:forged", constituents: [] } },
+      });
+      expect(forged.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
   });
-
-  it("lists basis arbitrage opportunities and arms delta-neutral harvesters", async () => {
+  it("does not fabricate quotes or armed agents when live services fail", async () => {
+    vi.spyOn(LiveBasisService.prototype, "list").mockRejectedValue(new Error("Offline"));
     const app = await buildApi(
-      readConfig({
-        NODE_ENV: "test",
-        LOG_LEVEL: "silent",
-        SISERA_ALLOW_DEV_AUTH: "true",
-      }),
+      readConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", SISERA_ALLOW_DEV_AUTH: "true" }),
     );
-    const listRes = await app.inject({
-      method: "GET",
-      url: "/v1/arbitrage/basis",
-      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
-    });
-    expect(listRes.statusCode).toBe(200);
-    const opps = listRes.json().data;
-    expect(opps.length).toBeGreaterThanOrEqual(2);
-    expect(opps[0].netYieldAprPct).toBeGreaterThan(10);
-
-    const armRes = await app.inject({
-      method: "POST",
-      url: "/v1/arbitrage/arm",
-      headers: { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" },
-      payload: {
-        asset: "SOL",
-        notionalUsd: 5000,
-        maxLeverage: 2,
-      },
-    });
-    expect(armRes.statusCode).toBe(201);
-    const armed = armRes.json().data;
-    expect(armed.asset).toBe("SOL");
-    expect(armed.status).toBe("armed");
-    expect(armed.notionalUsd).toBe(5000);
-    expect(armed.estimatedDailyYieldUsd).toBeGreaterThan(0);
-    await app.close();
+    const headers = { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "privy:test" };
+    try {
+      expect((await app.inject({ url: "/v1/arbitrage/basis", headers })).statusCode).toBe(503);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/v1/arbitrage/arm",
+            headers,
+            payload: { asset: "BTC", notionalUsd: 5000, maxLeverage: 1 },
+          })
+        ).statusCode,
+      ).toBe(503);
+    } finally {
+      await app.close();
+    }
   });
 });

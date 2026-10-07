@@ -44,10 +44,7 @@ import {
 } from "@sisera/db";
 import type { Candle, MarketSnapshot, UserRole } from "@sisera/domain";
 import { roleCan } from "@sisera/domain";
-import {
-  type BasisArbitrageOpportunity,
-  calculateBasisArbitrageOpportunities,
-} from "@sisera/policy";
+import type { BasisArbitrageOpportunity } from "@sisera/policy";
 import type { FastifyBaseLogger } from "fastify";
 import { AgentDraftInput, StoredAgentPolicy, compileAgentDraft } from "../agent-governance.js";
 import type { HeliusClient } from "../helius.js";
@@ -55,6 +52,7 @@ import type { SolanaTradingService } from "../solana-trading.js";
 import type { AssetCatalog, CatalogAsset } from "./catalog.js";
 import type { DelegatedSigner } from "./delegated-signer.js";
 import type { HistoryService } from "./history.js";
+import type { LiveBasisService } from "./live-basis.js";
 import type { MarketStateBuilder } from "./market-state.js";
 
 export class AgentError extends Error {
@@ -69,6 +67,7 @@ export class AgentError extends Error {
 type Principal = { subject: string; tenantId: string; roles: readonly UserRole[] };
 
 export type AgentDependencies = {
+  basis?: LiveBasisService;
   databaseUrl: string;
   catalog: AssetCatalog;
   history: HistoryService;
@@ -630,99 +629,20 @@ export class AgentService {
     };
   }
 
-  private readonly vaults = new Map<
-    string,
-    {
-      totalAumUsd: number;
-      deposits: Map<string, number>;
-      totalFeesAccruedUsd: number;
-      totalBuybackUsd: number;
-    }
-  >();
-
   async getAgentVault(principal: Principal, agentId: string) {
-    const detail = await this.detail(principal, agentId);
-    let vault = this.vaults.get(agentId);
-    if (!vault) {
-      vault = {
-        totalAumUsd: Math.max(50_000, detail.policy.capitalAllocation.maxCapitalUsd),
-        deposits: new Map([[principal.subject, 10_000]]),
-        totalFeesAccruedUsd: 1_250,
-        totalBuybackUsd: 375, // 30% of fees redirected to Clawpump DBC token buybacks
-      };
-      this.vaults.set(agentId, vault);
-    }
-    const userDepositUsd = vault.deposits.get(principal.subject) ?? 0;
-    return {
-      agentId,
-      name: detail.manifest.name,
-      stage: detail.stage,
-      autonomy: detail.autonomy,
-      totalAumUsd: vault.totalAumUsd,
-      userDepositUsd,
-      sharePriceUsd: 1.142,
-      highWaterMarkUsd: 1.142,
-      performanceFeePct: 20,
-      clawpumpBuybackFeePct: 30, // 30% of performance fees burned or bought back on Meteora DBC
-      totalFeesAccruedUsd: vault.totalFeesAccruedUsd,
-      totalBuybackUsd: vault.totalBuybackUsd,
-      depositorsCount: vault.deposits.size,
-      eligibleForCopyTrading: ["paper", "shadow", "limited_live", "live"].includes(detail.stage),
-    };
+    await this.loadOwned(principal, agentId);
+    throw new AgentError("Vault custody is not configured.", 503);
   }
-
-  async depositToVault(principal: Principal, agentId: string, amountUsd: number) {
-    if (amountUsd <= 0 || amountUsd > 1_000_000)
-      throw new AgentError("Invalid deposit amount", 400);
-    await this.getAgentVault(principal, agentId);
-    const vault = this.vaults.get(agentId);
-    if (!vault) throw new AgentError("Vault not found", 404);
-    const current = vault.deposits.get(principal.subject) ?? 0;
-    vault.deposits.set(principal.subject, current + amountUsd);
-    vault.totalAumUsd += amountUsd;
-    return this.getAgentVault(principal, agentId);
+  async depositToVault(principal: Principal, agentId: string, _amountUsd: number) {
+    await this.loadOwned(principal, agentId);
+    throw new AgentError("Vault custody is not configured.", 503);
   }
-
   async listVaultLeaderboard() {
-    return [
-      {
-        agentId: "btc_momentum_alpha_v2",
-        name: "BTC Momentum Alpha v2",
-        creator: "sisera-quant",
-        stage: "live" as Stage,
-        sharpeRatio: 2.34,
-        maxDrawdownPct: 4.8,
-        totalAumUsd: 284_500,
-        pnl30dPct: 18.4,
-        vaultDepositUsd: 284_500,
-      },
-      {
-        agentId: "nvda_breakout_v1",
-        name: "NVDAx Momentum Surge",
-        creator: "apex-capital",
-        stage: "limited_live" as Stage,
-        sharpeRatio: 2.15,
-        maxDrawdownPct: 6.2,
-        totalAumUsd: 142_000,
-        pnl30dPct: 14.1,
-        vaultDepositUsd: 142_000,
-      },
-      {
-        agentId: "openai_discount_arb",
-        name: "OpenAI Mark Arbitrageur",
-        creator: "premarket-labs",
-        stage: "paper" as Stage,
-        sharpeRatio: 1.95,
-        maxDrawdownPct: 5.1,
-        totalAumUsd: 98_000,
-        pnl30dPct: 9.8,
-        vaultDepositUsd: 98_000,
-      },
-    ];
+    return [];
   }
 
   async listBasisArbitrageOpportunities(): Promise<BasisArbitrageOpportunity[]> {
-    return calculateBasisArbitrageOpportunities();
+    return (await this.deps.basis?.list()) ?? [];
   }
 
   async armBasisHarvester(
@@ -736,18 +656,18 @@ export class AgentService {
     if (input.notionalUsd <= 0 || input.notionalUsd > 1_000_000) {
       throw new AgentError("Notional must be between $1 and $1,000,000", 400);
     }
-    const opportunities = calculateBasisArbitrageOpportunities();
+    const opportunities = (await this.deps.basis?.list(input.notionalUsd, 30, true)) ?? [];
     const opp = opportunities.find((o) => o.asset.toLowerCase() === input.asset.toLowerCase());
-    if (!opp) {
+    if (!opp || opp.status === "unfavorable") {
       throw new AgentError(
         `No active basis arbitrage opportunity found for asset ${input.asset}`,
         404,
       );
     }
     const agentDraft = {
-      name: `Delta-Neutral Basis Harvester (${opp.asset})`,
-      description: `Automated cash-and-carry funding rate harvester exploiting spread between ${opp.spotVenue} and ${opp.perpVenue} with ${opp.netYieldAprPct.toFixed(1)}% net APR.`,
-      universe: [`hyperliquid:${opp.asset}-USD:perpetual`, `solana:${opp.asset}/USDC:spot`],
+      name: `Basis research (${opp.asset})`,
+      description: `Current funding carry estimate: ${opp.netYieldAprPct.toFixed(1)}% annualized. Paired execution requires an evaluated strategy.`,
+      universe: [`hyperliquid:${opp.asset}-USD:perpetual`, `binance:${opp.asset}/USDC:spot`],
       timeframe: "1h" as const,
       factors: ["funding_rate_disparity", "basis_spread_convergence"],
       capitalLimitUsd: input.notionalUsd,
@@ -771,7 +691,7 @@ export class AgentService {
       agentId: created?.id ?? `harvester-${Date.now()}`,
       name: agentDraft.name,
       stage: "draft" as Stage,
-      autonomy: "policy_auto" as AutonomyLevel,
+      autonomy: "research" as AutonomyLevel,
       asset: opp.asset,
       netYieldAprPct: opp.netYieldAprPct,
       notionalUsd: input.notionalUsd,
@@ -779,7 +699,7 @@ export class AgentService {
       spotVenue: opp.spotVenue,
       perpVenue: opp.perpVenue,
       liquidationBufferPct: opp.liquidationBufferPct,
-      status: "armed",
+      status: "draft",
       createdAt: new Date().toISOString(),
     };
   }

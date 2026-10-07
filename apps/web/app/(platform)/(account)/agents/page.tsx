@@ -52,11 +52,6 @@ export default async function AgentsPage({
         }
       />
       <div className="overflow-x-auto border-b border-line bg-panel px-4 py-5">
-        <p className="mb-4 text-xs text-amber-200">
-          Strategies begin as research drafts. Each promotion needs a passed evaluation for the
-          exact manifest version; live stages need an independent risk manager, and circuit breakers
-          pause or demote agents automatically.
-        </p>
         <div className="flex min-w-[760px] items-center">
           {stages.map((stage, index) => (
             <div key={stage} className="flex flex-1 items-center">

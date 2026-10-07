@@ -59,6 +59,8 @@ jobs:
 
       - name: Unit & Integration tests
         run: pnpm test
+        env:
+          MARKETPLACE_TEST_DATABASE_URL: postgresql://sisera:sisera@127.0.0.1:5432/sisera_test
 
       - name: Build packages & web
         run: pnpm build

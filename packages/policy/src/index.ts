@@ -1006,6 +1006,13 @@ export const TakeConstituentCategory = z.enum([
 export type TakeConstituentCategory = z.infer<typeof TakeConstituentCategory>;
 
 export const TakeConstituent = z.object({
+  assetKey: z.string().optional(),
+  sector: z.string().optional(),
+  evidenceIds: z.array(z.string()).default([]),
+  counterpoints: z.array(z.string()).default([]),
+  priceUsd: z.number().positive().nullable().optional(),
+  premiumPct: z.number().nullable().optional(),
+  observedAt: z.string().optional(),
   symbol: z.string().min(1).max(32),
   name: z.string().min(1).max(128),
   mint: z.string().optional(),
@@ -1025,13 +1032,15 @@ export const ThematicTake = z.object({
   thesis: z.string().min(1).max(2500),
   macroTheme: z.string().min(1).max(120),
   targetTotalNotionalUsd: z.number().positive(),
+  cashWeightPct: z.number().min(0).max(100).default(0),
+  cashNotionalUsd: z.number().nonnegative().default(0),
   constituents: z.array(TakeConstituent).min(1).max(12),
   riskGuardrails: z.object({
     maxDailyDrawdownPct: z.number().positive().max(50).default(5),
     requireNoCriticalEvent: z.boolean().default(true),
     secFilingAware: z.boolean().default(true),
   }),
-  autopilot: z.boolean().default(true),
+  autopilot: z.boolean().default(false),
   stressScenarios: z.object({
     equitySelloffPct: z.number(),
     privateMarkResetPct: z.number(),
@@ -1040,19 +1049,42 @@ export const ThematicTake = z.object({
     weekendGapPct: z.number(),
   }),
   metrics: z.object({
-    estimatedSharpe: z.number(),
-    estimatedVol30dPct: z.number(),
+    estimatedSharpe: z.number().nullable(),
+    estimatedVol30dPct: z.number().nullable(),
     effectivePositions: z.number(),
     diversificationScore: z.number(),
   }),
   createdAt: z.string(),
   forkedFromId: z.string().nullable().optional(),
+  research: z
+    .object({
+      asOf: z.string(),
+      expiresAt: z.string(),
+      method: z.string(),
+      maxWeightPct: z.number(),
+      minLiquidityUsd: z.number(),
+      historyBasis: z.string(),
+      historyObservations: z.number(),
+      sources: z.array(
+        z.object({
+          id: z.string(),
+          url: z.string().url(),
+          title: z.string(),
+          publisher: z.string(),
+          certainty: z.string(),
+          publishedAt: z.string(),
+        }),
+      ),
+      excluded: z.array(z.object({ key: z.string(), reason: z.string() })),
+    })
+    .optional(),
 });
 export type ThematicTake = z.infer<typeof ThematicTake>;
 
 export function calculateTakeStress(constituents: TakeConstituent[]) {
-  const sumWeights = constituents.reduce((acc, c) => acc + c.weightPct, 0) || 100;
-  const fractions = constituents.map((c) => c.weightPct / sumWeights);
+  const sumWeights = constituents.reduce((acc, c) => acc + c.weightPct, 0);
+  const fractions = constituents.map((c) => c.weightPct / 100);
+  const cashFraction = Math.max(0, 1 - sumWeights / 100);
 
   // Sector shocks
   const shocks = {
@@ -1076,23 +1108,14 @@ export function calculateTakeStress(constituents: TakeConstituent[]) {
   const weighted = (weights: number[], impacts: number[]) =>
     Number(weights.reduce((acc, w, i) => acc + w * (impacts[i] ?? 0), 0).toFixed(1));
 
-  const herfindahl = fractions.reduce((acc, f) => acc + f * f, 0);
+  const herfindahl = fractions.reduce((acc, f) => acc + f * f, cashFraction * cashFraction);
   const effectivePositions = Number((1 / Math.max(0.01, herfindahl)).toFixed(1));
   const diversificationScore = Math.min(
     100,
-    Math.round((effectivePositions / Math.max(1, constituents.length)) * 100),
+    Math.round(
+      (effectivePositions / Math.max(1, constituents.length + (cashFraction > 0 ? 1 : 0))) * 100,
+    ),
   );
-
-  const baseVols = constituents.map((c) =>
-    c.category === "pre_ipo" ? 44 : c.category === "tokenized_equity" ? 28 : 62,
-  );
-  const avgVol = fractions.reduce((acc, f, i) => acc + f * (baseVols[i] ?? 35), 0);
-  const estimatedVol30dPct = Number(
-    (avgVol * Math.sqrt(herfindahl + 0.3 * (1 - herfindahl))).toFixed(1),
-  );
-
-  // Multi-factor risk-managed baseline Sharpe
-  const estimatedSharpe = Number(Math.max(1.4, 2.35 - (avgVol / 100) * 0.8).toFixed(2));
 
   return {
     stressScenarios: {
@@ -1103,325 +1126,52 @@ export function calculateTakeStress(constituents: TakeConstituent[]) {
       weekendGapPct: weighted(fractions, shocks.weekendGap),
     },
     metrics: {
-      estimatedSharpe,
-      estimatedVol30dPct,
+      estimatedSharpe: null,
+      estimatedVol30dPct: null,
       effectivePositions,
       diversificationScore,
     },
   };
 }
 
+/** Constructs a research draft from externally sourced constituents; never invents a basket. */
 export function synthesizeThematicTake(input: {
   themeText: string;
   totalNotionalUsd?: number;
-  availableAssets?: Array<{ symbol: string; name: string; mint?: string; kind?: string }>;
+  constituents?: TakeConstituent[];
+  cashWeightPct?: number;
   forkedFrom?: ThematicTake | null;
 }): ThematicTake {
-  const totalNotional = input.totalNotionalUsd ?? 5000;
-  const lower = input.themeText.toLowerCase();
-
-  let title = "Thematic Alpha Basket";
-  let macroTheme = "Multi-Asset Dislocation";
-  let thesis =
-    "A diversified multi-asset thesis capturing fundamental dislocation between onchain token pricing and benchmark equity reference marks.";
-  let constituents: TakeConstituent[] = [];
-
-  if (/\b(?:humanoid|robot|robotics|embodied|automation|figure)\b/.test(lower)) {
-    title = "Humanoid Robotics & Embodied AI Infrastructure";
-    macroTheme = "Next-Gen Physical Intelligence";
-    thesis =
-      "Physical AI deployment is inflection-bound as foundation models merge with electromechanical actuators. Bypasses pure software multiples by pairing pre-IPO robotics leaders with hardware fabricators and edge vision giants.";
-    constituents = [
-      {
-        symbol: "Figure AI",
-        name: "Figure AI (Pre-IPO)",
-        category: "pre_ipo",
-        weightPct: 35,
-        targetNotionalUsd: Math.round(totalNotional * 0.35),
-        entryTriggers: [
-          { type: "premium_below", pct: 5 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 48,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -12 }],
-        rationale:
-          "Commercial deployment leader in humanoid warehouse and manufacturing robotics with BMW and OpenAI backing.",
-      },
-      {
-        symbol: "TSLAx",
-        name: "Tesla Inc (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 30,
-        targetNotionalUsd: Math.round(totalNotional * 0.3),
-        entryTriggers: [
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-          { type: "sec_filing_detected", lookbackHours: 72 },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -10 }],
-        rationale:
-          "Optimus volume manufacturing capacity, proprietary neural net compute Dojo, and real-world training scale.",
-      },
-      {
-        symbol: "NVDAx",
-        name: "NVIDIA Corp (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 25,
-        targetNotionalUsd: Math.round(totalNotional * 0.25),
-        entryTriggers: [
-          { type: "premium_below", pct: 1.5 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -8 }],
-        rationale:
-          "Core Isaac Sim physics simulation engine, Project GR00T humanoid foundation models, and Jetson edge robotics modules.",
-      },
-      {
-        symbol: "SOL",
-        name: "Solana (Native Layer 1)",
-        category: "crypto",
-        weightPct: 10,
-        targetNotionalUsd: Math.round(totalNotional * 0.1),
-        entryTriggers: [
-          { type: "ema_trend", fast: 12, slow: 26, direction: "bullish", requireCross: false },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -15 }],
-        rationale:
-          "Primary settlement network for machine-to-machine micropayments and DePIN telemetry.",
-      },
-    ];
-  } else if (/\b(?:compute|power|energy|grid|nuclear|datacenter|electricity)\b/.test(lower)) {
-    title = "AI Compute Scaling & Power Grid Renaissance";
-    macroTheme = "Infrastructure Bottleneck Arbitrage";
-    thesis =
-      "Hyperscaler AI clusters are power-constrained rather than capital-constrained. Monetizes the structural mismatch between gigawatt-scale data center energization queues and zero-carbon nuclear/utility capacity.";
-    constituents = [
-      {
-        symbol: "OpenAI",
-        name: "OpenAI (Pre-IPO)",
-        category: "pre_ipo",
-        weightPct: 35,
-        targetNotionalUsd: Math.round(totalNotional * 0.35),
-        entryTriggers: [
-          { type: "premium_below", pct: 4 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -12 }],
-        rationale:
-          "Frontier o-series reasoning cluster demand requiring massive dedicated energization pacts.",
-      },
-      {
-        symbol: "NVDAx",
-        name: "NVIDIA Corp (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 30,
-        targetNotionalUsd: Math.round(totalNotional * 0.3),
-        entryTriggers: [{ type: "premium_below", pct: 2 }, { type: "reference_fresh" }],
-        invalidationRules: [{ type: "change_24h_below", pct: -8 }],
-        rationale:
-          "Blackwell GB200 NVL72 rack-scale liquid-cooled deployments driving 120kW per rack density.",
-      },
-      {
-        symbol: "AAPLx",
-        name: "Apple Inc (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 20,
-        targetNotionalUsd: Math.round(totalNotional * 0.2),
-        entryTriggers: [
-          {
-            type: "no_negative_event",
-            minSeverity: "medium",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -8 }],
-        rationale:
-          "Edge AI inference alternative bypassing centralized grid congestion via Apple Silicon NPU ecosystem.",
-      },
-      {
-        symbol: "BTC",
-        name: "Bitcoin (Hyperliquid Perp)",
-        category: "perp",
-        weightPct: 15,
-        targetNotionalUsd: Math.round(totalNotional * 0.15),
-        entryTriggers: [
-          { type: "ema_trend", fast: 12, slow: 26, direction: "bullish", requireCross: false },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -10 }],
-        rationale:
-          "Direct correlation with global liquidity expansion and flexible load response for grid stabilization.",
-      },
-    ];
-  } else if (/\b(?:private|pre-?ipo|labs|openai|anthropic|spacex|semis?|chips?)\b/.test(lower)) {
-    title = "Private AI Labs Alpha vs Public Semiconductor Giants";
-    macroTheme = "Private vs Public AI Dislocation";
-    thesis =
-      "Exploits the asymmetric valuation divergence between onchain PreStocks secondary marks and public equity multiples, hedging model risk with foundry hardware leaders.";
-    constituents = [
-      {
-        symbol: "OpenAI",
-        name: "OpenAI (Pre-IPO)",
-        category: "pre_ipo",
-        weightPct: 35,
-        targetNotionalUsd: Math.round(totalNotional * 0.35),
-        entryTriggers: [
-          { type: "premium_below", pct: 3.5 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -12 }],
-        rationale: "Unchallenged consumer distribution and enterprise frontier reasoning moat.",
-      },
-      {
-        symbol: "Anthropic",
-        name: "Anthropic (Pre-IPO)",
-        category: "pre_ipo",
-        weightPct: 25,
-        targetNotionalUsd: Math.round(totalNotional * 0.25),
-        entryTriggers: [
-          { type: "premium_below", pct: 4 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -12 }],
-        rationale:
-          "Claude enterprise coding benchmark dominance and Amazon/Google sovereign infrastructure ties.",
-      },
-      {
-        symbol: "NVDAx",
-        name: "NVIDIA Corp (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 25,
-        targetNotionalUsd: Math.round(totalNotional * 0.25),
-        entryTriggers: [{ type: "premium_below", pct: 1.5 }, { type: "reference_fresh" }],
-        invalidationRules: [{ type: "change_24h_below", pct: -8 }],
-        rationale:
-          "Hardware tax collected on all model training compute regardless of which frontier lab wins.",
-      },
-      {
-        symbol: "TSLAx",
-        name: "Tesla Inc (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 15,
-        targetNotionalUsd: Math.round(totalNotional * 0.15),
-        entryTriggers: [
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -10 }],
-        rationale:
-          "Real-world autonomous agent fleet data collector converting visual photons to robotic actions.",
-      },
-    ];
-  } else {
-    // Dynamic synthesis based on keywords or default institutional mix
-    title = `Thematic Alpha: ${input.themeText.slice(0, 50).trim()}`;
-    macroTheme = "Cross-Market Sourced Dislocation";
-    thesis = `Dynamic multi-asset thesis centered on "${input.themeText.slice(0, 120)}", balancing private market discount capture with public tokenized equity liquidity.`;
-    constituents = [
-      {
-        symbol: "OpenAI",
-        name: "OpenAI (Pre-IPO)",
-        category: "pre_ipo",
-        weightPct: 40,
-        targetNotionalUsd: Math.round(totalNotional * 0.4),
-        entryTriggers: [
-          { type: "premium_below", pct: 3.5 },
-          {
-            type: "no_negative_event",
-            minSeverity: "high",
-            lookbackHours: 24,
-            includeRumors: true,
-          },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -12 }],
-        rationale:
-          "Primary private market innovation driver with highest institutional liquidity on PreStocks.",
-      },
-      {
-        symbol: "NVDAx",
-        name: "NVIDIA Corp (Tokenized)",
-        category: "tokenized_equity",
-        weightPct: 35,
-        targetNotionalUsd: Math.round(totalNotional * 0.35),
-        entryTriggers: [{ type: "premium_below", pct: 2.0 }, { type: "reference_fresh" }],
-        invalidationRules: [{ type: "change_24h_below", pct: -8 }],
-        rationale:
-          "Underlying reference anchored via Pyth Hermes feeds with 24/7 liquidity on Solana.",
-      },
-      {
-        symbol: "SOL",
-        name: "Solana (Layer 1)",
-        category: "crypto",
-        weightPct: 25,
-        targetNotionalUsd: Math.round(totalNotional * 0.25),
-        entryTriggers: [
-          { type: "ema_trend", fast: 12, slow: 26, direction: "bullish", requireCross: false },
-        ],
-        invalidationRules: [{ type: "change_24h_below", pct: -15 }],
-        rationale:
-          "High-throughput execution layer and native liquidity rails for tokenized asset settlement.",
-      },
-    ];
-  }
-
-  const { stressScenarios, metrics } = calculateTakeStress(constituents);
+  if (!input.constituents?.length) throw new Error("Research requires sourced assets.");
+  const total = input.totalNotionalUsd ?? 5000;
+  const sum = input.constituents.reduce((v, c) => v + c.weightPct, 0);
+  const cash = input.cashWeightPct ?? 0;
+  if (Math.abs(sum + cash - 100) > 0.01) throw new Error("Allocation must sum to 100%.");
+  const constituents = input.constituents.map((c) => ({
+    ...c,
+    targetNotionalUsd: Math.round(total * c.weightPct) / 100,
+  }));
+  const title = input.themeText.trim().slice(0, 120);
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const id = `take:${slug}-${Date.now().toString(36)}`;
-
-  return {
-    id,
+    .slice(0, 100);
+  return ThematicTake.parse({
+    id: `take:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
     title,
     slug,
-    thesis,
-    macroTheme,
-    targetTotalNotionalUsd: totalNotional,
+    thesis: input.themeText,
+    macroTheme: "Thematic research",
+    targetTotalNotionalUsd: total,
+    cashWeightPct: cash,
+    cashNotionalUsd: Math.round(total * cash) / 100,
     constituents,
-    riskGuardrails: {
-      maxDailyDrawdownPct: 5,
-      requireNoCriticalEvent: true,
-      secFilingAware: true,
-    },
-    autopilot: true,
-    stressScenarios,
-    metrics,
+    riskGuardrails: { maxDailyDrawdownPct: 5, requireNoCriticalEvent: true, secFilingAware: true },
+    autopilot: false,
+    ...calculateTakeStress(constituents),
     createdAt: new Date().toISOString(),
     forkedFromId: input.forkedFrom?.id ?? null,
-  };
+  });
 }
 
 /** Delta-Neutral Basis Arbitrage Opportunity between spot venues and perpetual futures. */
@@ -1437,97 +1187,54 @@ export type BasisArbitrageOpportunity = {
   fundingRateAprPct: number;
   borrowCostAprPct: number;
   netYieldAprPct: number;
-  liquidationBufferPct: number;
+  liquidationBufferPct: number | null;
   recommendedLeverage: number;
   status: "optimal" | "viable" | "neutral" | "unfavorable";
-  riskScore: number;
+  riskScore: number | null;
   observedAt: string;
 };
 
-/** Calculate active cross-venue basis arbitrage opportunities. */
+/** Annualized carry estimate from fresh observations. Funding is a variable rate, not a forecast. */
 export function calculateBasisArbitrageOpportunities(
-  customFeeds?: Partial<BasisArbitrageOpportunity>[],
+  feeds: Partial<BasisArbitrageOpportunity>[] = [],
 ): BasisArbitrageOpportunity[] {
-  const now = new Date().toISOString();
-  const baseline: BasisArbitrageOpportunity[] = [
-    {
-      id: "basis:sol-hl-jupiter",
-      asset: "SOL",
-      spotVenue: "solana_jupiter",
-      perpVenue: "hyperliquid",
-      spotPriceUsd: 148.25,
-      perpPriceUsd: 148.65,
-      basisSpreadBps: 27.0,
-      fundingRateHourlyPct: 0.0035,
-      fundingRateAprPct: 30.66,
-      borrowCostAprPct: 4.8,
-      netYieldAprPct: 25.86,
-      liquidationBufferPct: 35.0,
-      recommendedLeverage: 2.0,
-      status: "optimal",
-      riskScore: 2,
-      observedAt: now,
-    },
-    {
-      id: "basis:btc-hl-binance",
-      asset: "BTC",
-      spotVenue: "binance",
-      perpVenue: "hyperliquid",
-      spotPriceUsd: 68420.0,
-      perpPriceUsd: 68510.0,
-      basisSpreadBps: 13.1,
-      fundingRateHourlyPct: 0.0022,
-      fundingRateAprPct: 19.27,
-      borrowCostAprPct: 3.5,
-      netYieldAprPct: 15.77,
-      liquidationBufferPct: 45.0,
-      recommendedLeverage: 2.5,
-      status: "viable",
-      riskScore: 2,
-      observedAt: now,
-    },
-    {
-      id: "basis:eth-hl-binance",
-      asset: "ETH",
-      spotVenue: "binance",
-      perpVenue: "hyperliquid",
-      spotPriceUsd: 2615.5,
-      perpPriceUsd: 2618.8,
-      basisSpreadBps: 12.6,
-      fundingRateHourlyPct: 0.0018,
-      fundingRateAprPct: 15.76,
-      borrowCostAprPct: 3.9,
-      netYieldAprPct: 11.86,
-      liquidationBufferPct: 40.0,
-      recommendedLeverage: 2.0,
-      status: "viable",
-      riskScore: 3,
-      observedAt: now,
-    },
-    {
-      id: "basis:nvdax-hl-solana",
-      asset: "NVDAx",
-      spotVenue: "solana_jupiter",
-      perpVenue: "hyperliquid",
-      spotPriceUsd: 128.4,
-      perpPriceUsd: 128.85,
-      basisSpreadBps: 35.0,
-      fundingRateHourlyPct: 0.0042,
-      fundingRateAprPct: 36.79,
-      borrowCostAprPct: 6.2,
-      netYieldAprPct: 30.59,
-      liquidationBufferPct: 28.0,
-      recommendedLeverage: 1.5,
-      status: "optimal",
-      riskScore: 4,
-      observedAt: now,
-    },
-  ];
-
-  if (!customFeeds || customFeeds.length === 0) return baseline;
-
-  return baseline.map((opp) => {
-    const override = customFeeds.find((item) => item.asset === opp.asset || item.id === opp.id);
-    return override ? { ...opp, ...override } : opp;
+  return feeds.flatMap((f) => {
+    if (
+      !f.asset ||
+      !f.spotVenue ||
+      !f.perpVenue ||
+      !f.observedAt ||
+      !Number.isFinite(f.spotPriceUsd) ||
+      !Number.isFinite(f.perpPriceUsd) ||
+      !Number.isFinite(f.fundingRateHourlyPct) ||
+      (f.spotPriceUsd ?? 0) <= 0 ||
+      (f.perpPriceUsd ?? 0) <= 0 ||
+      Date.now() - Date.parse(f.observedAt) > 30_000 ||
+      Date.parse(f.observedAt) > Date.now() + 1000
+    )
+      return [];
+    const funding = (f.fundingRateHourlyPct ?? 0) * 24 * 365;
+    const net = funding - (f.borrowCostAprPct ?? 0);
+    return [
+      {
+        ...f,
+        id: f.id ?? `basis:${f.asset}`,
+        asset: f.asset,
+        spotVenue: f.spotVenue,
+        perpVenue: f.perpVenue,
+        spotPriceUsd: f.spotPriceUsd ?? 0,
+        perpPriceUsd: f.perpPriceUsd ?? 0,
+        basisSpreadBps: ((f.perpPriceUsd ?? 0) / (f.spotPriceUsd ?? 0) - 1) * 10_000,
+        fundingRateHourlyPct: f.fundingRateHourlyPct ?? 0,
+        fundingRateAprPct: funding,
+        borrowCostAprPct: f.borrowCostAprPct ?? 0,
+        netYieldAprPct: net,
+        liquidationBufferPct: f.liquidationBufferPct ?? null,
+        recommendedLeverage: f.recommendedLeverage ?? 1,
+        status: net > 20 ? "optimal" : net > 0 ? "viable" : "unfavorable",
+        riskScore: f.riskScore ?? null,
+        observedAt: f.observedAt,
+      } as BasisArbitrageOpportunity,
+    ];
   });
 }

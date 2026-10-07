@@ -14,10 +14,7 @@ export function SignInToTrade({ label, returnTo }: { label: string; returnTo: st
           <p className="text-[12px] text-slate-400">Free to use. Sign in to place orders.</p>
         </div>
       </div>
-      <p className="mt-4 text-[13px] leading-6 text-slate-300">
-        Signing in with email, Google, X, Discord, or a wallet gives you a Solana and an EVM wallet
-        automatically, plus paper trading to practice first.
-      </p>
+      <p className="mt-4 text-[13px] leading-6 text-slate-300">Sign in to trade.</p>
       <Link
         href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}
         className="mt-5 flex items-center justify-center gap-2 bg-bronze-300 px-4 py-3 text-sm font-semibold text-ink hover:bg-bronze-200"

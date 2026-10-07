@@ -35,11 +35,11 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
   const handleArm = async (asset: string) => {
     setArmingAsset(asset);
     try {
-      const res = await apiService.armBasisHarvester(asset, suggestedNotional, 2);
+      const res = await apiService.armBasisHarvester(asset, suggestedNotional, 1);
       if (res) {
         setArmedStatus((prev) => ({
           ...prev,
-          [asset]: "Armed (POLICY_AUTO Level 3)",
+          [asset]: "Research draft created",
         }));
         onArmed?.();
       } else {
@@ -58,9 +58,9 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
       <View style={styles.header}>
         <View style={styles.headerBadges}>
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>DELTA-NEUTRAL CASH & CARRY</Text>
+            <Text style={styles.badgeText}>FUNDING CARRY</Text>
           </View>
-          <Text style={styles.headerSub}>Zero Directional Beta</Text>
+          <Text style={styles.headerSub}>Variable funding</Text>
         </View>
         <View style={styles.capitalBox}>
           <Text style={styles.capitalLabel}>Capital Target:</Text>
@@ -113,7 +113,7 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
                 </View>
 
                 <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>NET APR</Text>
+                  <Text style={styles.metricLabel}>MODELED NET APR</Text>
                   <Text style={[styles.metricValue, styles.netAprValue]}>
                     +{opp.netYieldAprPct.toFixed(1)}%
                   </Text>
@@ -122,7 +122,7 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>LIQ. BUFFER</Text>
                   <Text style={styles.metricValue}>
-                    {opp.liquidationBufferPct}%
+                    {opp.liquidationBufferPct == null ? "—" : `${opp.liquidationBufferPct}%`}
                   </Text>
                 </View>
               </View>
@@ -143,7 +143,7 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
                       <ActivityIndicator size="small" color="#030806" />
                     ) : (
                       <Text style={styles.deployBtnText}>
-                        ⚡ DEPLOY HARVESTER
+                        CREATE DRAFT
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -156,7 +156,7 @@ export const BasisArbitrageCard: React.FC<BasisArbitrageCardProps> = ({
 
       {/* Footer Disclaimer */}
       <Text style={styles.footerNote}>
-        Pre-trade risk engine continuously guards margin ratios across Hyperliquid and Solana liquidity pools. Live orders respect institutional mandate ceilings.
+        Variable funding · modeled fees · basis and margin risk.
       </Text>
     </View>
   );

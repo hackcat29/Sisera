@@ -140,8 +140,7 @@ export function PrivateRankings() {
             </tbody>
           </table>
           <p className="border-t border-line px-4 py-2 text-[11px] text-slate-500">
-            Marks are PreStocks issuer estimates, not verified fair values. Risk combines liquidity,
-            gap size and volatility; portfolio fit favors sectors you are underweight.
+            Issuer marks · indicative estimates.
           </p>
         </div>
       )}

@@ -205,20 +205,42 @@ describe("policy evaluation", () => {
     ).toBe(true);
   });
 
-  it("synthesizes thematic takes and computes stress scenarios", () => {
+  it("requires sourced constituents and leaves unobserved metrics unavailable", () => {
+    expect(() => synthesizeThematicTake({ themeText: "Robotics" })).toThrow("sourced");
     const take = synthesizeThematicTake({
-      themeText: "Humanoid robots will transform domestic and industrial labor",
-      totalNotionalUsd: 10_000,
+      themeText: "Robotics",
+      totalNotionalUsd: 10000,
+      constituents: [
+        {
+          symbol: "AAA",
+          name: "A",
+          category: "tokenized_equity",
+          weightPct: 50,
+          targetNotionalUsd: 0,
+          entryTriggers: [],
+          invalidationRules: [],
+          rationale: "Observed source",
+          evidenceIds: ["a"],
+          counterpoints: [],
+        },
+        {
+          symbol: "BBB",
+          name: "B",
+          category: "pre_ipo",
+          weightPct: 50,
+          targetNotionalUsd: 0,
+          entryTriggers: [],
+          invalidationRules: [],
+          rationale: "Observed source",
+          evidenceIds: ["b"],
+          counterpoints: [],
+        },
+      ],
     });
-    expect(take.title).toContain("Humanoid Robotics");
-    expect(take.constituents.length).toBeGreaterThanOrEqual(3);
-    expect(take.targetTotalNotionalUsd).toBe(10_000);
+    expect(take.metrics.estimatedSharpe).toBeNull();
+    expect(take.autopilot).toBe(false);
+    expect(take.constituents.reduce((s, c) => s + c.targetNotionalUsd, 0)).toBe(10000);
     expect(take.stressScenarios.equitySelloffPct).toBeLessThan(0);
-    expect(take.stressScenarios.privateMarkResetPct).toBeLessThan(0);
-    expect(take.metrics.estimatedSharpe).toBeGreaterThan(1.0);
-    expect(take.metrics.effectivePositions).toBeGreaterThan(1.5);
-    expect(take.autopilot).toBe(true);
-    expect(take.riskGuardrails.secFilingAware).toBe(true);
   });
 
   it("evaluates funding rate and basis spread conditions", () => {
@@ -233,14 +255,26 @@ describe("policy evaluation", () => {
     expect(evaluateCondition(spreadCondition, {}).passed).toBe(false);
   });
 
-  it("calculates active cross-venue basis arbitrage opportunities", () => {
-    const opportunities = calculateBasisArbitrageOpportunities();
-    expect(opportunities.length).toBeGreaterThanOrEqual(3);
-    const sol = opportunities.find((o) => o.asset === "SOL");
-    expect(sol).toBeDefined();
-    expect(sol?.netYieldAprPct).toBeGreaterThan(15);
-    expect(sol?.spotVenue).toBe("solana_jupiter");
-    expect(sol?.perpVenue).toBe("hyperliquid");
-    expect(sol?.status).toBe("optimal");
+  it("requires fresh observed quotes for carry calculations", () => {
+    expect(calculateBasisArbitrageOpportunities()).toEqual([]);
+    const feed = {
+      asset: "BTC",
+      spotVenue: "binance" as const,
+      perpVenue: "hyperliquid" as const,
+      spotPriceUsd: 100,
+      perpPriceUsd: 101,
+      fundingRateHourlyPct: 0.001,
+      observedAt: new Date().toISOString(),
+    };
+    expect(calculateBasisArbitrageOpportunities([feed])[0]).toMatchObject({
+      recommendedLeverage: 1,
+      liquidationBufferPct: null,
+    });
+    expect(
+      calculateBasisArbitrageOpportunities([
+        { ...feed, observedAt: new Date(Date.now() - 60000).toISOString() },
+      ]),
+    ).toEqual([]);
+    expect(calculateBasisArbitrageOpportunities([{ ...feed, spotPriceUsd: 0 }])).toEqual([]);
   });
 });

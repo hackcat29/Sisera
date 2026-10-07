@@ -819,3 +819,4 @@ export async function resolvePrivyMembership(connectionString: string, privyUser
 export * from "./platform.js";
 
 export * from "./marketplace.js";
+export * from "./research.js";
