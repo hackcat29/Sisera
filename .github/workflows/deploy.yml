@@ -92,7 +92,7 @@ jobs:
             echo "=================================================================================="
             echo "REQUIRED GITHUB ACTIONS SECRETS MISSING FOR CONTABO VPS DEPLOYMENT:"
             echo "Please configure the following Repository Secrets at:"
-            echo "https://github.com/UncleTom29/Sisera/settings/secrets/actions"
+            echo "https://github.com/hackcat29/Sisera/settings/secrets/actions"
             echo ""
             echo "  - CONTABO_HOST     : Contabo VPS IP address or hostname"
             echo "  - CONTABO_USER     : SSH username (e.g., root)"
@@ -236,7 +236,7 @@ jobs:
             if [ ! -d .git ]; then
               echo "==> Initializing git repository in $APP_DIR..."
               git init
-              git remote add origin https://github.com/UncleTom29/Sisera.git || git remote set-url origin https://github.com/UncleTom29/Sisera.git
+              git remote add origin https://github.com/hackcat29/Sisera.git || git remote set-url origin https://github.com/hackcat29/Sisera.git
             fi
             git fetch origin main
             git reset --hard origin/main
