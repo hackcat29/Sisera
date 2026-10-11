@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -103,6 +104,22 @@ export const SettingsScreen: React.FC = () => {
             {savedNotice ? "✓ CONFIGURATION APPLIED" : "APPLY TELEMETRY SETTINGS"}
           </Text>
         </TouchableOpacity>
+
+        {/* Open Source Repository */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>OPEN SOURCE REPOSITORY</Text>
+          <TouchableOpacity
+            style={styles.clusterBtn}
+            onPress={() => Linking.openURL("https://github.com/hackcat29/Sisera")}
+          >
+            <Text style={styles.clusterBtnTextActive}>
+              GITHUB • HACKCAT29 / SISERA ↗
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.hint}>
+            Institutional autonomous agents, Pyth oracles, and pre-trade risk engines are fully open source.
+          </Text>
+        </View>
 
         {/* Architecture & Institutional Specifications */}
         <View style={styles.card}>
