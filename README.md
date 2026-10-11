@@ -4,7 +4,7 @@
 
 Sisera gives traders one place to discover stock-linked markets, understand what is moving them, compare onchain prices with reference values, execute, manage a single portfolio, and deploy agents that trade continuously inside explicit capital and risk limits. Tokenized stocks are treated as financial instruments, not as SPL tokens with a chart and a swap button: every market carries reference pricing, valuation context, liquidity analysis, portfolio exposure, execution quality, classified news and events, and an auditable history of how both humans and agents acted on it.
 
-Live at **[sisera.xyz](https://sisera.xyz)**.
+Live at **[sisera.xyz](https://sisera.xyz)** · Repository on **[GitHub](https://github.com/hackcat29/Sisera)**.
 
 ```text
 discover → understand fair value → see the events moving it → ask Sisera AI → measure portfolio impact

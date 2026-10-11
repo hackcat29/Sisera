@@ -6,7 +6,10 @@ import { verifySignedSwap } from "../src/solana-trading.js";
 import { StockNewsClient, relevantCompanyNews } from "../src/stock-news.js";
 import { XStocksClient } from "../src/xstocks.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("stock provider boundaries", () => {
   it("keeps Jupiter previews quote-only and strips transaction payloads", async () => {
@@ -66,6 +69,8 @@ describe("stock provider boundaries", () => {
   });
 
   it("searches GDELT without an API key", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T12:00:00Z"));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -88,6 +93,8 @@ describe("stock provider boundaries", () => {
   });
 
   it("renders free RSS news when GDELT is unavailable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T12:00:00Z"));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation(async (url: string | URL) => {
