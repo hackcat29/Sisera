@@ -7,10 +7,12 @@ export const site = {
   description:
     "Compare tokenized stocks with their underlying shares, pre-IPO tokens with issuer marks, and crypto markets in one terminal, with company news, portfolio context, and rule-bound research agents.",
   themeColor: "#0c141b",
+  /** Canonical GitHub repository */
+  github: "https://github.com/hackcat29/Sisera",
   /** Public contact address shown on the about and legal pages. */
   contactEmail: process.env.NEXT_PUBLIC_CONTACT_EMAIL || "admin@sisera.xyz",
   /** Official profiles for Organization.sameAs. Add each account once it is live. */
-  sameAs: [] as string[],
+  sameAs: ["https://github.com/hackcat29/Sisera"],
   /** Market data providers Sisera reads from; shown as plain text, never as partner logos. */
   dataSources: ["Pyth", "Panta", "Jupiter", "CoinMarketCap", "Hyperliquid", "Binance", "Helius"],
 };

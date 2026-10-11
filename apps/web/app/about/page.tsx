@@ -71,6 +71,21 @@ export default function AboutPage() {
         manage capital.
       </p>
 
+      <h2>Open source & verified logic</h2>
+      <p>
+        Sisera is open source. The entire institutional terminal, autonomous agent runtime, and risk
+        policies are hosted on GitHub at{" "}
+        <a
+          href={site.github}
+          target="_blank"
+          rel="noreferrer"
+          className="text-bronze-300 underline underline-offset-4 hover:text-bronze-200"
+        >
+          {site.github.replace("https://github.com/", "")}
+        </a>
+        .
+      </p>
+
       <h2>What Sisera is not</h2>
       <p>
         Sisera is not a broker, exchange, custodian, or investment adviser, and nothing in the
