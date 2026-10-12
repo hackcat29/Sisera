@@ -3,6 +3,81 @@ import { describe, expect, it, vi } from "vitest";
 import { PantaPredictionProvider } from "../src/index.js";
 
 describe("PantaPredictionProvider", () => {
+  it("discovers secondary markets on later pages and excludes ineligible events", async () => {
+    const future = Math.floor(Date.now() / 1000) + 86400;
+    const row = (marketId: string, fields: Record<string, unknown> = {}) => ({
+      marketId,
+      title: `Event ${marketId}`,
+      phase: "secondary",
+      status: "open",
+      endTime: String(future),
+      ...fields,
+    });
+    const cursor = "opaque+/=cursor";
+    const fetcher = vi.fn().mockImplementation(async (rawUrl: string) => {
+      const url = new URL(rawUrl);
+      expect(url.searchParams.has("status")).toBe(false);
+      expect(url.searchParams.get("limit")).toBe("50");
+      if (!url.searchParams.has("cursor"))
+        return Response.json({
+          items: [row("primary123", { phase: "primary" }), row("resolved123", { resolved: true })],
+          nextCursor: cursor,
+        });
+      expect(url.searchParams.get("cursor")).toBe(cursor);
+      return Response.json({
+        items: [
+          row("secondary123"),
+          row("primary123", { phase: "primary" }),
+          row("expired123", { endTime: future - 172800 }),
+          row("cancelled123", { phase: "cancelled" }),
+          row("settled123", { status: "resolved" }),
+          row("blank123", { title: "   " }),
+        ],
+        nextCursor: null,
+      });
+    });
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    const markets = await provider.listOpenMarkets(100);
+    expect(markets.map((market) => market.id)).toEqual(["primary123", "secondary123"]);
+    expect(markets[1]?.closesAt).toBe(new Date(future * 1000).toISOString());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a repeated cursor instead of treating a partial catalog as complete", async () => {
+    const fetcher = vi
+      .fn()
+      .mockImplementation(async () => Response.json({ items: [], nextCursor: "same" }));
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    await expect(provider.listOpenMarkets()).rejects.toThrow("pagination did not complete");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a failed later page rather than silently dropping those markets", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [{ marketId: "first123", title: "First event" }],
+          nextCursor: "next",
+        }),
+      )
+      .mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    await expect(provider.listOpenMarkets()).rejects.toThrow("Panta API responded with 503");
+  });
+
   it("refreshes detail and uses settlement rules, linked sources, and total volume", async () => {
     const fetcher = vi.fn().mockImplementation(async (url: string) => {
       const market = {

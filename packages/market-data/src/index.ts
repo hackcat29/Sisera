@@ -784,7 +784,11 @@ export class PantaPredictionProvider {
   async listOpenMarkets(limit = 20): Promise<PredictionMarket[]> {
     const markets = await this.loadAll();
     return markets
-      .filter((market) => !market.closesAt || Date.parse(market.closesAt) > Date.now())
+      .filter(
+        (market) =>
+          market.status === "open" &&
+          (!market.closesAt || Date.parse(market.closesAt) > Date.now()),
+      )
       .slice(0, limit);
   }
 
@@ -880,12 +884,16 @@ export class PantaPredictionProvider {
     const startedAt = Date.now();
     const isCustomFetcher = this.fetcher !== globalThis.fetch;
 
-    // In unit test environments or custom fetcher injection, execute a single fetch
+    // Exercise the same cursor traversal for injected Panta clients and production.
+    if (isCustomFetcher && this.baseUrl.includes("panta.market")) {
+      const markets = await this.fetchPantaApi(startedAt);
+      this.cache = { until: Date.now() + 60_000, markets };
+      return markets;
+    }
+
+    // Preserve the legacy event adapter for injected non-Panta clients.
     if (isCustomFetcher) {
-      const isPantaUrl = this.baseUrl.includes("panta.market");
-      const url = isPantaUrl
-        ? `${this.baseUrl.replace(/\/$/, "")}/markets/?limit=50&status=primary`
-        : `${this.baseUrl.replace(/\/$/, "")}/events?includeMarkets=true&start=0&end=99`;
+      const url = `${this.baseUrl.replace(/\/$/, "")}/events?includeMarkets=true&start=0&end=99`;
 
       const response = await this.fetcher(url, {
         headers: {
@@ -905,7 +913,7 @@ export class PantaPredictionProvider {
       };
       const quality = {
         status: "delayed" as const,
-        source: isPantaUrl ? "panta-api" : "jupiter-api",
+        source: "jupiter-api",
         observedAt: new Date().toISOString(),
         receivedAt: new Date().toISOString(),
         latencyMs: Date.now() - startedAt,
@@ -962,21 +970,43 @@ export class PantaPredictionProvider {
   }
 
   private async fetchPantaApi(startedAt: number): Promise<PredictionMarket[]> {
-    const url = `${this.baseUrl.replace(/\/$/, "")}/markets/?limit=50&status=primary`;
-    const response = await this.fetcher(url, {
-      headers: {
-        accept: "application/json",
-        ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) throw new Error(`Panta API responded with ${response.status}`);
-    const payload = (await response.json()) as { items?: unknown[]; data?: unknown[] };
-    const items = Array.isArray(payload?.items)
-      ? payload.items
-      : Array.isArray(payload?.data)
-        ? payload.data
-        : [];
+    const items: unknown[] = [];
+    const cursors = new Set<string>();
+    // A single deadline bounds the whole catalog refresh, including later pages.
+    const signal = AbortSignal.timeout(10000);
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const url = new URL(`${this.baseUrl.replace(/\/$/, "")}/markets/`);
+      url.searchParams.set("limit", "50");
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const response = await this.fetcher(url.toString(), {
+        headers: {
+          accept: "application/json",
+          ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
+        },
+        signal,
+      });
+      if (!response.ok) throw new Error(`Panta API responded with ${response.status}`);
+      const payload = (await response.json()) as {
+        items?: unknown[];
+        data?: unknown[];
+        nextCursor?: unknown;
+      };
+      items.push(
+        ...(Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : []),
+      );
+      cursor =
+        typeof payload.nextCursor === "string" && payload.nextCursor ? payload.nextCursor : null;
+      if (!cursor) break;
+      if (cursors.has(cursor) || page === 19) {
+        throw new Error("Panta catalog pagination did not complete");
+      }
+      cursors.add(cursor);
+    }
     const quality = {
       status: "live" as const,
       source: "panta-api",
@@ -984,9 +1014,12 @@ export class PantaPredictionProvider {
       receivedAt: new Date().toISOString(),
       latencyMs: Date.now() - startedAt,
     };
-    return items
-      .map((item: unknown) => parsePantaApiMarket(item, quality))
-      .filter((m: PredictionMarket | null): m is PredictionMarket => m !== null);
+    const markets = new Map<string, PredictionMarket>();
+    for (const item of items) {
+      const market = parsePantaApiMarket(item, quality);
+      if (market) markets.set(market.id, market);
+    }
+    return [...markets.values()];
   }
 
   private async fetchOnChain(startedAt: number): Promise<PredictionMarket[]> {
@@ -1090,7 +1123,7 @@ function parsePantaApiMarket(
       : typeof item.question === "string"
         ? item.question
         : "";
-  if (!title) return null;
+  if (!title.trim()) return null;
   const category = typeof item.category === "string" ? item.category : "General";
   const subcategory =
     typeof item.marketType === "string"
@@ -1110,7 +1143,9 @@ function parsePantaApiMarket(
       typeof value === "number"
         ? value
         : typeof value === "string"
-          ? Date.parse(value) / 1000
+          ? /^\d+(\.\d+)?$/.test(value)
+            ? Number(value)
+            : Date.parse(value) / 1000
           : Number.NaN;
     return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
   };
@@ -1182,7 +1217,14 @@ function parsePantaApiMarket(
     venueTokenIds: [],
     resolutionRules,
     closesAt,
-    status: item.resolved === true || item.status === "resolved" ? "closed" : "open",
+    status:
+      item.resolved === true ||
+      item.cancelled === true ||
+      [item.status, item.phase].some((phase) =>
+        ["resolved", "cancelled", "closed"].includes(String(phase).toLowerCase()),
+      )
+        ? "closed"
+        : "open",
     outcomes: [
       {
         id: `${marketId}:yes`,
