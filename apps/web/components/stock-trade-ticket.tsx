@@ -66,7 +66,7 @@ function TradeTicketView({
   const account =
     wallet?.accounts.find((item) => item.address === linkedAddress) ?? wallet?.accounts[0];
   const accountAddress = account?.address;
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [review, setReview] = useState(false);
@@ -223,7 +223,7 @@ function TradeTicketView({
         aria-label="Trading mode"
         className="mt-5 grid grid-cols-2 rounded border border-line bg-ink-deep p-1"
       >
-        {(["paper", "live"] as const).map((option) => (
+        {(["live", "paper"] as const).map((option) => (
           <button
             key={option}
             type="button"

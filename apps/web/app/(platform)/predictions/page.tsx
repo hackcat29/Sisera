@@ -11,7 +11,7 @@ import { accountErrorMessage, getPredictionMarkets } from "../../../lib/api";
 export const metadata: Metadata = {
   title: "Predictions",
   description:
-    "Thousands of prediction markets with probability history, order books, and research for each outcome.",
+    "Panta prediction markets with cited event research, resolution checks, and measured market structure.",
 };
 
 export const dynamic = "force-dynamic";
@@ -78,10 +78,34 @@ export default async function PredictionsPage({
       <PageHeader
         eyebrow="Markets / Predictions"
         title="Prediction markets"
-        description="Every open market with its odds, volume, and time to resolution. Open one for its probability history, order book, and research."
+        description="Find an event. Examine its evidence. Compare the case for YES and NO with market structure and resolution criteria."
       />
       <div className="space-y-4 p-4 md:p-6">
-        {signedIn && <PredictionPaperAccount />}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line py-3 text-[11px] text-slate-400">
+          <span>
+            Powered by{" "}
+            <a
+              href="https://panta.market"
+              target="_blank"
+              rel="noreferrer"
+              className="text-bronze-300 hover:text-bone"
+            >
+              Panta
+            </a>{" "}
+            · Solana prediction markets
+          </span>
+          <span>Live wallet trading · Cited event research · Explicit resolution checks</span>
+        </div>
+        {signedIn && (
+          <details className="border border-line bg-panel">
+            <summary className="cursor-pointer px-4 py-3 text-xs text-slate-400">
+              Practice account
+            </summary>
+            <div className="px-4 pb-4">
+              <PredictionPaperAccount />
+            </div>
+          </details>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <form
             action="/predictions"
@@ -155,20 +179,24 @@ export default async function PredictionsPage({
                             </span>
                             <span className="text-[11px] capitalize text-slate-400">
                               {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+                              {market.pricingAvailable === false
+                                ? " · Open for live pricing"
+                                : " · View evidence"}
                             </span>
                           </Link>
                         </td>
                         <td className="px-5 py-2.5 text-right">
                           <span className="num text-[var(--up)]">
-                            {(probability * 100).toFixed(1)}%
+                            {market.pricingAvailable === false
+                              ? "—"
+                              : `${(probability * 100).toFixed(1)}%`}
                           </span>
                         </td>
                         <td className="px-5 py-2.5 text-right">
                           <span className="num text-[var(--down)]">
-                            {(
-                              Number(market.outcomes[1]?.probability ?? 1 - probability) * 100
-                            ).toFixed(1)}
-                            %
+                            {market.pricingAvailable === false
+                              ? "—"
+                              : `${(Number(market.outcomes[1]?.probability ?? 1 - probability) * 100).toFixed(1)}%`}
                           </span>
                         </td>
                         <td className="num px-5 py-2.5 text-right text-slate-300">

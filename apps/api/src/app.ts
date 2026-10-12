@@ -101,6 +101,7 @@ import { PlatformScheduler } from "./platform/scheduler.js";
 import { SecEdgarClient } from "./platform/sec-edgar.js";
 import { ThematicResearchService } from "./platform/thematic-research.js";
 import { WalletLeaderboardService } from "./platform/wallet-leaderboard.js";
+import { predictionInsights } from "./prediction-insights.js";
 import { PredictionPaperRejection, settlePredictionPaperOrder } from "./prediction-paper.js";
 import { researchPredictionMarket } from "./prediction-research.js";
 import { PredictionTradingService } from "./prediction-trading.js";
@@ -709,7 +710,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         prediction: async (marketId, outcome) => {
           const market = await predictions.getMarket?.(marketId);
           const probability = market?.outcomes[outcome === "yes" ? 0 : 1]?.probability;
-          return market && probability
+          return market && market.pricingAvailable !== false && probability
             ? { price: Number(probability), observedAt: market.quality.observedAt }
             : null;
         },
@@ -1334,7 +1335,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             const parsed = PredictionMarket.safeParse(item);
             return parsed.success ? [parsed.data] : [];
           })
-          .find((item) => item.resolutionRules && item.outcomes.length >= 2);
+          .find(
+            (item) =>
+              item.pricingAvailable !== false && item.resolutionRules && item.outcomes.length >= 2,
+          );
         if (!market) throw new Error("Prediction evidence unavailable");
         return {
           data: {
@@ -1925,7 +1929,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             query.sort === "closing"
               ? Date.parse(a.closesAt ?? "") - Date.parse(b.closesAt ?? "")
               : query.sort === "contested"
-                ? Math.abs(yes(a) - 0.5) - Math.abs(yes(b) - 0.5)
+                ? (a.pricingAvailable === false ? 2 : Math.abs(yes(a) - 0.5)) -
+                  (b.pricingAvailable === false ? 2 : Math.abs(yes(b) - 0.5))
                 : (b.volumeUsd ?? 0) - (a.volumeUsd ?? 0),
           );
         return {
@@ -1941,11 +1946,11 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         };
       } catch (error) {
         return reply.code(503).send({
-          error: "jupiter_prediction_unavailable",
+          error: "panta_prediction_unavailable",
           message:
             error instanceof Error && /401/.test(error.message)
-              ? "Jupiter API key is required or invalid"
-              : "Jupiter prediction market data is unavailable",
+              ? "Panta API key is required or invalid"
+              : "Panta prediction market data is unavailable",
         });
       }
     },
@@ -1968,9 +1973,13 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     },
   );
   const predictionResearchCache = new Map<string, { until: number; value: unknown }>();
+  const predictionResearchPending = new Map<string, Promise<unknown>>();
   app.get(
     "/v1/prediction-markets/:id/research",
-    { preHandler: requirePermission("market:read") },
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
     async (request, reply) => {
       const { id } = z
         .object({ id: z.string().regex(/^[A-Za-z0-9:_-]{3,128}$/) })
@@ -1983,11 +1992,38 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         market.eventId && predictions.listEventMarkets
           ? await predictions.listEventMarkets(market.eventId).catch(() => [])
           : [];
-      const value = await researchPredictionMarket(market, siblings);
-      predictionResearchCache.set(id, { until: Date.now() + 60_000, value });
-      if (predictionResearchCache.size > 500)
-        predictionResearchCache.delete(predictionResearchCache.keys().next().value ?? "");
-      return { data: value };
+      const pending = predictionResearchPending.get(id);
+      if (pending) return { data: await pending };
+      const compute = (async () => {
+        const [research, events] = await Promise.all([
+          researchPredictionMarket(market, siblings, globalThis.fetch, {
+            baseUrl: config.PANTA_API_BASE_URL,
+            apiKey: config.PANTA_API_KEY,
+          }),
+          Promise.race([
+            intelligence.forTopic(market.eventTitle ?? market.title).catch(() => []),
+            new Promise<never[]>((resolve) => {
+              const timer = setTimeout(() => resolve([]), 5000);
+              timer.unref();
+            }),
+          ]),
+        ]);
+        const insights = await predictionInsights(market, research, events, chat);
+        const value = { ...research, insights };
+        predictionResearchCache.set(id, {
+          until: Date.now() + (insights.mode === "ai" ? 5 * 60_000 : 30_000),
+          value,
+        });
+        if (predictionResearchCache.size > 500)
+          predictionResearchCache.delete(predictionResearchCache.keys().next().value ?? "");
+        return value;
+      })();
+      predictionResearchPending.set(id, compute);
+      try {
+        return { data: await compute };
+      } finally {
+        predictionResearchPending.delete(id);
+      }
     },
   );
 

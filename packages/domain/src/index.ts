@@ -222,6 +222,8 @@ export const AgentManifest = z.object({
 export type AgentManifest = z.infer<typeof AgentManifest>;
 
 export const PredictionMarket = z.object({
+  /** False for catalog rows without observed prices. */
+  pricingAvailable: z.boolean().optional(),
   id: z.string(),
   provider: z.string(),
   underlyingProvider: z.string().nullable().optional(),

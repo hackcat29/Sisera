@@ -3,6 +3,69 @@ import { describe, expect, it, vi } from "vitest";
 import { PantaPredictionProvider } from "../src/index.js";
 
 describe("PantaPredictionProvider", () => {
+  it("refreshes detail and uses settlement rules, linked sources, and total volume", async () => {
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      const market = {
+        marketId: "native123",
+        title: "Will BTC reach a new all-time high?",
+        description: "Promotional creation description",
+        yesPrice: "0.005",
+        noPrice: "0.995",
+        volumeUsdc: "3.25",
+        totalVolumeUsdc: "8.25",
+        startTime: "2026-01-01T00:00:00Z",
+        endTime: "2027-01-01T00:00:00Z",
+      };
+      return Response.json(
+        url.includes("/native123/")
+          ? {
+              ...market,
+              resolutionRule:
+                "YES if the official oracle reports a new high before the deadline. Otherwise NO.",
+              sources: ["https://www.coingecko.com/en/coins/bitcoin"],
+            }
+          : { items: [market] },
+      );
+    });
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    expect((await provider.listOpenMarkets())[0]?.resolutionRules).toBeNull();
+    const detail = await provider.getMarket("native123");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(detail?.resolutionRules).toContain("official oracle");
+    expect(detail?.resolutionRules).toContain("https://www.coingecko.com");
+    expect(detail?.resolutionRules).not.toContain("Promotional");
+    expect(detail?.volumeUsd).toBe(8.25);
+    expect(detail?.outcomes[0]?.probability).toBe("0.005");
+    expect(detail?.closesAt).toBe("2027-01-01T00:00:00.000Z");
+  });
+  it("marks catalog rows with null prices as unavailable instead of asserting 50/50", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        items: [
+          {
+            marketId: "native123",
+            title: "ETH above 5k?",
+            yesPrice: null,
+            noPrice: null,
+            volumeUsdc: "1200",
+          },
+        ],
+      }),
+    );
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "test",
+      fetcher,
+    );
+    const markets = await provider.listOpenMarkets();
+    expect(markets[0]?.pricingAvailable).toBe(false);
+    expect(markets[0]?.venueTokenIds).toEqual([]);
+    expect(markets[0]?.eventVolume24hUsd).toBeNull();
+  });
   it("parses live Panta REST API markets and calculates outcomes", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       new Response(

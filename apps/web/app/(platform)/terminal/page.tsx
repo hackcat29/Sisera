@@ -83,9 +83,6 @@ export default async function TerminalPage({
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-2 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-3 py-2 font-mono text-[10px] uppercase tracking-wide text-amber-200">
-              <span className="size-1.5 rounded-full bg-amber-300" /> Paper mode
-            </span>
             <LiveRefresh />
           </div>
         </div>

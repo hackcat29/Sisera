@@ -791,7 +791,7 @@ export class PantaPredictionProvider {
   async getMarket(id: string): Promise<PredictionMarket | null> {
     const markets = await this.loadAll();
     const found = markets.find((market) => market.id === id);
-    if (found) return found;
+    // Catalog prices may be null; market detail refreshes on-chain spot prices.
 
     // Direct lookup via Panta API if configured
     if (this.apiKey) {
@@ -819,6 +819,8 @@ export class PantaPredictionProvider {
         }
       } catch {}
     }
+
+    if (found) return found;
 
     // Direct lookup on-chain via Solana RPC
     try {
@@ -1103,27 +1105,43 @@ function parsePantaApiMarket(
       : typeof item.imageUrl === "string"
         ? item.imageUrl
         : null;
-  const startTime = typeof item.startTime === "number" ? item.startTime : null;
-  const endTime = typeof item.endTime === "number" ? item.endTime : null;
-  const resolutionTime = typeof item.resolutionTime === "number" ? item.resolutionTime : null;
+  const timestamp = (value: unknown) => {
+    const seconds =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Date.parse(value) / 1000
+          : Number.NaN;
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  };
+  const startTime = timestamp(item.startTime);
+  const endTime = timestamp(item.endTime);
+  const resolutionTime = timestamp(item.resolutionTime);
   const closeSec =
     endTime ?? resolutionTime ?? (typeof item.closeTime === "number" ? item.closeTime : null);
   const closesAt = closeSec ? new Date(closeSec * 1000).toISOString() : null;
   const openedAt = startTime ? new Date(startTime * 1000).toISOString() : null;
   const volumeUsd =
-    item.volumeUsdc != null
-      ? Number(item.volumeUsdc)
-      : item.volumeUsd != null
-        ? Number(item.volumeUsd)
-        : null;
-  const resolutionRules =
-    typeof item.description === "string"
-      ? item.description
-      : typeof item.resolutionRules === "string"
-        ? item.resolutionRules
-        : typeof item.resolutionRule === "string"
-          ? item.resolutionRule
+    item.totalVolumeUsdc != null
+      ? Number(item.totalVolumeUsdc)
+      : item.volumeUsdc != null
+        ? Number(item.volumeUsdc)
+        : item.volumeUsd != null
+          ? Number(item.volumeUsd)
           : null;
+  const rule =
+    typeof item.resolutionRules === "string"
+      ? item.resolutionRules.trim()
+      : typeof item.resolutionRule === "string"
+        ? item.resolutionRule.trim()
+        : "";
+  const sources = Array.isArray(item.sources)
+    ? item.sources.filter(
+        (source): source is string => typeof source === "string" && /^https?:\/\//.test(source),
+      )
+    : [];
+  // The creation description may be promotional text, not settlement criteria.
+  const resolutionRules = rule ? [rule, ...sources].join("\n") : null;
 
   let yes = item.yesPrice != null ? Number(item.yesPrice) : null;
   let no = item.noPrice != null ? Number(item.noPrice) : null;
@@ -1134,13 +1152,22 @@ function parsePantaApiMarket(
     if (typeof p.buyYesPriceUsd === "number") yes ??= p.buyYesPriceUsd / 1_000_000;
     if (typeof p.buyNoPriceUsd === "number") no ??= p.buyNoPriceUsd / 1_000_000;
   }
-  const yesProb = yes != null && Number.isFinite(yes) ? Math.min(Math.max(yes, 0.01), 0.99) : 0.5;
-  const noProb =
-    no != null && Number.isFinite(no) ? Math.min(Math.max(no, 0.01), 0.99) : 1 - yesProb;
+  const pricingAvailable =
+    yes != null &&
+    no != null &&
+    Number.isFinite(yes) &&
+    Number.isFinite(no) &&
+    yes >= 0 &&
+    yes <= 1 &&
+    no >= 0 &&
+    no <= 1;
+  const yesProb = yes != null && Number.isFinite(yes) ? Math.min(Math.max(yes, 0), 1) : 0.5;
+  const noProb = no != null && Number.isFinite(no) ? Math.min(Math.max(no, 0), 1) : 1 - yesProb;
 
   return {
     id: marketId,
     provider: "panta",
+    pricingAvailable,
     underlyingProvider: "panta",
     title,
     eventId: typeof item.campaignId === "string" ? item.campaignId : marketId,
@@ -1151,9 +1178,9 @@ function parsePantaApiMarket(
     imageUrl,
     openedAt,
     volumeUsd,
-    eventVolume24hUsd: volumeUsd,
-    venueTokenIds: [marketId],
-    resolutionRules: resolutionRules ?? "Resolved according to Panta market rules.",
+    eventVolume24hUsd: null,
+    venueTokenIds: [],
+    resolutionRules,
     closesAt,
     status: item.resolved === true || item.status === "resolved" ? "closed" : "open",
     outcomes: [

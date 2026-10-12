@@ -790,7 +790,7 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextAsset, setContextAsset] = useState<string | null>(initialAsset ?? null);
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const [threadId] = useState(() => crypto.randomUUID());
   const [policyRefresh, setPolicyRefresh] = useState(0);
   const end = useRef<HTMLDivElement>(null);
@@ -849,8 +849,8 @@ export function CopilotChat({ initialAsset }: { initialAsset?: string | null }) 
               value={mode}
               onChange={(event) => setMode(event.target.value as "paper" | "live")}
             >
-              <option value="paper">Paper</option>
               <option value="live">Live</option>
+              <option value="paper">Paper</option>
             </select>
           </label>
         </div>

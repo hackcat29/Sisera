@@ -8,7 +8,7 @@ import { Note, Panel, buttonClass, inputClass } from "./ui";
 export function ImpactWidget({ assetKey, symbol }: { assetKey: string; symbol: string }) {
   const [amount, setAmount] = useState("1000");
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const [result, setResult] = useState<TradeImpact | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -54,8 +54,8 @@ export function ImpactWidget({ assetKey, symbol }: { assetKey: string; symbol: s
             value={mode}
             onChange={(event) => setMode(event.target.value as "paper" | "live")}
           >
-            <option value="paper">Paper</option>
             <option value="live">Live</option>
+            <option value="paper">Paper</option>
           </select>
         </div>
         <button

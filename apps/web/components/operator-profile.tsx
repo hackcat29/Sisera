@@ -1,142 +1,139 @@
 "use client";
 
 import { usePrivy } from "@privy-io/react-auth";
-import {
-  CircleUserRound,
-  ExternalLink,
-  LogOut,
-  Network,
-  Settings,
-  ShieldCheck,
-  User,
-} from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ArrowUpRight, Check, ChevronDown, Copy, LogOut, Settings, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { getPrivyDisplayName } from "../lib/privy-identity";
+import { useState } from "react";
+import { getPrivyDisplayName, getPrivySolanaAddress } from "../lib/privy-identity";
 
 export function OperatorProfile({
   operator,
   localMode = false,
-}: {
-  operator: string;
-  localMode?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+}: { operator: string; localMode?: boolean }) {
   const router = useRouter();
   const { authenticated, user, logout } = usePrivy();
-  const displayName = authenticated ? getPrivyDisplayName(user) : operator;
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = authenticated ? getPrivyDisplayName(user) : operator;
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  const email = user?.email?.address || user?.google?.email;
+  const address = getPrivySolanaAddress(user);
+  const shortAddress = address ? `${address.slice(0, 4)}…${address.slice(-4)}` : null;
+  const itemClass =
+    "flex cursor-pointer items-center gap-3 rounded px-3 py-2.5 text-[13px] text-slate-300 outline-none focus:bg-white/[.06] focus:text-bone";
 
-  async function switchOperator() {
-    const response = await fetch("/api/session", { method: "DELETE" });
-    if (!response.ok) return;
-    if (authenticated) await logout();
-    localStorage.removeItem("sisera_active_wallet");
-    setOpen(false);
-    router.replace("/sign-in");
-    router.refresh();
+  async function signOut() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/session", { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not sign out. Try again.");
+      if (authenticated) await logout();
+      localStorage.removeItem("sisera_active_wallet");
+      router.replace("/sign-in");
+      router.refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
-
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="grid size-8 place-items-center rounded border border-line bg-slate-900 text-slate-300 hover:border-bronze-400/40 hover:text-white transition-colors"
-        aria-label="Operator profile"
-        title={displayName}
-        aria-expanded={open}
-      >
-        <CircleUserRound size={16} />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-11 z-50 w-72 rounded-lg border border-line bg-panel p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
-          <div className="flex items-center gap-3 border-b border-line pb-3">
-            <div className="grid size-9 place-items-center rounded-full bg-bronze-300/10 text-bronze-300">
-              <User size={16} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-white">{displayName}</p>
-              <div className="mt-0.5 flex items-center gap-1.5">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-                </span>
-                <span className="font-mono text-[10px] text-emerald-400">
-                  {localMode ? "Local Operator" : "Authenticated"}
-                </span>
-              </div>
-            </div>
+    <DropdownMenu.Root
+      onOpenChange={() => {
+        setCopied(false);
+        setError(null);
+      }}
+    >
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          aria-label={`Account: ${name}`}
+          className="flex h-9 items-center gap-2 rounded-md px-1.5 text-slate-300 outline-none transition-colors hover:bg-white/[.05] focus-visible:ring-2 focus-visible:ring-bronze-300"
+        >
+          <span className="grid size-7 shrink-0 place-items-center rounded-full border border-bronze-300/25 bg-bronze-300/10 text-[10px] font-semibold text-bronze-200">
+            {initials || "S"}
+          </span>
+          <span className="hidden max-w-28 truncate text-xs xl:block">{name}</span>
+          <ChevronDown size={12} className="text-slate-500" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={12}
+          collisionPadding={12}
+          className="z-[100] w-72 rounded-lg border border-line bg-panel p-1.5 shadow-[0_16px_48px_#0008]"
+        >
+          <div className="px-3 pb-3 pt-2">
+            <p className="truncate text-sm font-medium text-bone">{name}</p>
+            <p className="mt-1 truncate text-xs text-slate-500">
+              {localMode ? "Local workspace" : email || "Sisera account"}
+            </p>
           </div>
-
-          <div className="mt-3 space-y-1.5 rounded border border-line/60 bg-ink-raised p-2.5 text-[11px] text-slate-400">
-            <div className="flex justify-between">
-              <span>Environment:</span>
-              <span className="font-mono text-slate-200">Terminal V2</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Network:</span>
-              <span className="font-mono text-bronze-300">Solana Mainnet</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Pre-trade Risk:</span>
-              <span className="font-mono text-emerald-300">Deterministic</span>
-            </div>
-          </div>
-
-          <div className="mt-3 space-y-1 text-xs">
-            <Link
-              href="/settings"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 rounded px-2.5 py-1.5 text-slate-300 hover:bg-white/5 hover:text-white"
-            >
-              <Settings size={14} className="text-slate-400" />
-              <span>Terminal Settings</span>
+          <DropdownMenu.Separator className="mb-1 h-px bg-line" />
+          <DropdownMenu.Item asChild>
+            <Link href="/portfolio" className={itemClass}>
+              <Wallet size={15} />
+              Portfolio
+              <span className="ml-auto font-mono text-[11px] text-slate-500">{shortAddress}</span>
             </Link>
-            <Link
-              href="/risk"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 rounded px-2.5 py-1.5 text-slate-300 hover:bg-white/5 hover:text-white"
+          </DropdownMenu.Item>
+          {address && (
+            <DropdownMenu.Item
+              onSelect={(event) => {
+                event.preventDefault();
+                void navigator.clipboard
+                  .writeText(address)
+                  .then(() => setCopied(true))
+                  .catch(() => setError("Unable to copy wallet address."));
+              }}
+              className={itemClass}
             >
-              <ShieldCheck size={14} className="text-slate-400" />
-              <span>Risk Controls</span>
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+              <span>{copied ? "Address copied" : "Copy wallet address"}</span>
+            </DropdownMenu.Item>
+          )}
+          <DropdownMenu.Item asChild>
+            <Link href="/settings" className={itemClass}>
+              <Settings size={15} />
+              Account settings
             </Link>
-            <Link
-              href="/audit"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 rounded px-2.5 py-1.5 text-slate-300 hover:bg-white/5 hover:text-white"
-            >
-              <Network size={14} className="text-slate-400" />
-              <span>Audit Ledger</span>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item asChild>
+            <Link href="/audit" className={itemClass}>
+              <ArrowUpRight size={15} />
+              Activity
             </Link>
-          </div>
-
-          <div className="mt-3 border-t border-line pt-2">
-            <button
-              type="button"
-              onClick={() => void switchOperator()}
-              className="flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs text-rose-300 hover:bg-rose-500/10"
-            >
-              <span>Switch Operator Session</span>
-              <LogOut size={13} />
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item
+            disabled={busy}
+            onSelect={(event) => {
+              event.preventDefault();
+              void signOut();
+            }}
+            className={`${itemClass} text-rose-300 data-[disabled]:opacity-50`}
+          >
+            <LogOut size={15} />
+            {busy ? "Signing out…" : "Sign out"}
+          </DropdownMenu.Item>
+          {error && (
+            <p role="alert" className="px-3 py-2 text-xs text-rose-300">
+              {error}
+            </p>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

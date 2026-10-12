@@ -18,7 +18,7 @@ type Preferences = { liquidityThresholdUsd: number; mandate: Record<string, numb
 
 /** Mandate utilization from the reconciled book, plus the limits every order is checked against. */
 export function MandatePanel() {
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const { view, error, reload } = usePortfolio(mode);
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -68,7 +68,7 @@ export function MandatePanel() {
         title="Mandate utilization"
         actions={
           <div className="flex border border-line">
-            {(["paper", "live"] as const).map((value) => (
+            {(["live", "paper"] as const).map((value) => (
               <button
                 key={value}
                 type="button"

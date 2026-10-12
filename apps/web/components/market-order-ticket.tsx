@@ -25,7 +25,7 @@ export function MarketOrderTicket({
 }) {
   const { authenticated } = usePrivy();
   const { evm: wallet } = useSiseraWallets();
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [quantity, setQuantity] = useState("");
   const [busy, setBusy] = useState(false);
@@ -113,7 +113,7 @@ export function MarketOrderTicket({
       </div>
       <div className="flex-1 space-y-4 p-4">
         <div className="grid grid-cols-2 gap-1 rounded border border-line p-1">
-          {(["paper", "live"] as const).map((option) => (
+          {(["live", "paper"] as const).map((option) => (
             <button
               key={option}
               type="button"

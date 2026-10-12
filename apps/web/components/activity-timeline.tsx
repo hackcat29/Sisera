@@ -29,8 +29,8 @@ export function ActivityTimeline({ events }: { events: AccountEvent[] }) {
               className="border border-line bg-ink p-2 text-slate-200"
             >
               <option value="all">All modes</option>
-              <option value="paper">Paper</option>
               <option value="live">Live</option>
+              <option value="paper">Paper</option>
             </select>
           </label>
           <label>

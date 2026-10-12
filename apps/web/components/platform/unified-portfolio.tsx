@@ -160,14 +160,14 @@ export function usePortfolio(mode: "paper" | "live") {
 
 /** One portfolio across tokenized stocks, pre-IPO, agent tokens, crypto and agent books. */
 export function UnifiedPortfolio() {
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const { view, error } = usePortfolio(mode);
   return (
     <div className="space-y-4 p-4 md:px-6">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-base font-semibold text-bone">Unified book</h2>
         <div className="flex border border-line">
-          {(["paper", "live"] as const).map((value) => (
+          {(["live", "paper"] as const).map((value) => (
             <button
               key={value}
               type="button"

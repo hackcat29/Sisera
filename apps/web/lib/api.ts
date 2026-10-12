@@ -317,11 +317,16 @@ function identityHeaders(identity: ApiIdentity): HeadersInit {
   return {};
 }
 
-async function getJson<T>(path: string, identity: ApiIdentity, timeoutMs = 5000): Promise<T> {
+async function getJson<T>(
+  path: string,
+  identity: ApiIdentity,
+  timeoutMs = 5000,
+  fresh = false,
+): Promise<T> {
   const response = await fetch(`${serverApiUrl()}${path}`, {
     headers: { accept: "application/json", ...identityHeaders(identity) },
     // Signed-in requests are always fresh; public pages share a short-lived cache.
-    ...(identity.accessToken || identity.localOperator
+    ...(fresh || identity.accessToken || identity.localOperator
       ? { cache: "no-store" as const }
       : { next: { revalidate: 60 } }),
     signal: AbortSignal.timeout(timeoutMs),
@@ -753,11 +758,13 @@ export async function getAgentTokens(
   );
 }
 
+export type PredictionClaim = { text: string; evidenceIds: string[] };
+
 export type PredictionResearch = {
   marketId: string;
   history: Array<{ time: number; value: number }>;
   stats: {
-    probability: number;
+    probability: number | null;
     change24hPts: number | null;
     change7dPts: number | null;
     change30dPts: number | null;
@@ -796,6 +803,34 @@ export type PredictionResearch = {
     marketProbability: number;
     candles: Array<{ time: number; open: number; high: number; low: number; close: number }>;
   } | null;
+  activity: {
+    trades: number;
+    wallets: number;
+    lastTradeAt: string | null;
+    sampleLimit: number;
+  } | null;
+  insights?: {
+    mode: "ai" | "data";
+    generatedAt: string;
+    technical: Array<{ label: string; value: number | null; unit: string; detail: string }>;
+    fundamentals: Array<{ label: string; status: string; detail: string }>;
+    gaps: string[];
+    questions: string[];
+    evidence: Array<{
+      id: string;
+      title: string;
+      url: string | null;
+      publisher: string;
+      publishedAt: string | null;
+      detail: string;
+    }>;
+    brief: {
+      summary: PredictionClaim;
+      yesCase: PredictionClaim[];
+      noCase: PredictionClaim[];
+      watch: PredictionClaim[];
+    };
+  };
   sources: string[];
   measuredAt: string;
 };
@@ -812,7 +847,8 @@ export async function getPredictionResearch(id: string, identity: ApiIdentity) {
   const payload = await getJson<{ data: PredictionResearch }>(
     `/v1/prediction-markets/${encodeURIComponent(id)}/research`,
     identity,
-    20000,
+    45000,
+    true,
   );
   return payload.data;
 }

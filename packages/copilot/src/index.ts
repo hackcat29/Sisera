@@ -249,7 +249,12 @@ export class OpenRouterChat {
 
   async complete(
     messages: readonly ChatMessage[],
-    options: { maxTokens?: number; timeoutMs?: number } = {},
+    options: {
+      maxTokens?: number;
+      timeoutMs?: number;
+      jsonSchema?: { name: string; schema: Record<string, unknown> };
+      reasoning?: boolean;
+    } = {},
   ) {
     const response = await this.fetcher("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -258,6 +263,16 @@ export class OpenRouterChat {
         model: this.model,
         temperature: 0,
         max_tokens: options.maxTokens ?? 700,
+        ...(options.jsonSchema
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: { ...options.jsonSchema, strict: true },
+              },
+              provider: { require_parameters: true },
+            }
+          : {}),
+        ...(options.reasoning != null ? { reasoning: { enabled: options.reasoning } } : {}),
         messages,
       }),
       signal: AbortSignal.timeout(options.timeoutMs ?? 25_000),

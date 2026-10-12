@@ -26,7 +26,7 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
   const account =
     wallet?.accounts.find((item) => item.address === linkedAddress) ?? wallet?.accounts[0];
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
-  const [mode, setMode] = useState<"paper" | "live">("paper");
+  const [mode, setMode] = useState<"paper" | "live">("live");
   const [amount, setAmount] = useState("");
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [working, setWorking] = useState(false);
@@ -37,7 +37,7 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
     setWorking(true);
     setMessage(null);
     try {
-      if (!authenticated) throw new Error("Sign in to use the prediction paper account.");
+      if (!authenticated) throw new Error("Sign in to trade prediction markets.");
       if (mode === "live" && !liveAvailable) throw new Error("Prediction live trading is paused.");
       if (mode === "paper") {
         if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(amount))
@@ -128,10 +128,11 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
   }
 
   return (
-    <div className="mt-4 border-t border-line pt-3 text-xs">
-      <p className="font-semibold text-slate-200">Trade with Panta · {mode}</p>
+    <section className="border border-line bg-panel p-5 text-xs">
+      <h2 className="mb-4 text-base font-semibold text-bone">Trade this event</h2>
+      <p className="mb-3 text-[11px] text-slate-500">Powered by Panta · Solana · USDC</p>
       <div className="mt-2 grid grid-cols-2 gap-1">
-        {(["paper", "live"] as const).map((option) => (
+        {(["live", "paper"] as const).map((option) => (
           <button
             key={option}
             type="button"
@@ -212,6 +213,6 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
         </p>
       )}
       {message && <output className="mt-2 block text-slate-300">{message}</output>}
-    </div>
+    </section>
   );
 }

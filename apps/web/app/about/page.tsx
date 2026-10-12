@@ -39,7 +39,7 @@ export default function AboutPage() {
         </li>
         <li>
           Trade crypto spot and Hyperliquid perpetuals with charts and order book depth, and browse
-          prediction markets with paper trading.
+          Panta prediction markets with wallet-signed live orders and an optional practice account.
         </li>
         <li>Read why a price moved, with company news and market context on the same page.</li>
         <li>

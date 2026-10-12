@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "../../../../auth";
+import { PredictionResearchPanel } from "../../../../components/prediction-research-panel";
 import { PredictionTradeTicket } from "../../../../components/prediction-trade-ticket";
 import { ProbabilityChart } from "../../../../components/probability-chart";
 import { SignInToTrade } from "../../../../components/sign-in-to-trade";
@@ -55,8 +56,12 @@ export default async function PredictionMarketPage({
   ]);
   if (!marketResult) notFound();
   const market = marketResult.data;
-  const yes = Number(market.outcomes[0]?.probability ?? 0);
-  const no = Number(market.outcomes[1]?.probability ?? 1 - yes);
+  const yes =
+    market.pricingAvailable === false ? null : Number(market.outcomes[0]?.probability ?? 0);
+  const no =
+    market.pricingAvailable === false
+      ? null
+      : Number(market.outcomes[1]?.probability ?? 1 - (yes ?? 0));
   const stats = research?.stats;
   const book = research?.orderBook;
   const underlying = research?.underlying;
@@ -93,7 +98,7 @@ export default async function PredictionMarketPage({
             <Link href="/predictions" className="hover:text-bone">
               Predictions
             </Link>{" "}
-            · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+            · Powered by Panta · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
           </p>
           <h1 className="display mt-2 text-[28px] leading-tight text-bone">{market.title}</h1>
           {market.closesAt && (
@@ -116,29 +121,49 @@ export default async function PredictionMarketPage({
 
       <div className="grid gap-4 p-4 md:p-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-4">
-          <section className="border border-line bg-panel">
-            <div className="flex items-center justify-between border-b border-line px-5 py-3">
-              <h2 className="text-sm font-semibold text-bone">Yes probability over time</h2>
-              <span className="font-mono text-[11px] text-slate-400">
-                Hourly · Polymarket order book
-              </span>
-            </div>
-            <ProbabilityChart history={research?.history ?? []} />
-          </section>
+          {research ? (
+            <PredictionResearchPanel research={research} section="brief" />
+          ) : (
+            <p className="border border-line bg-panel p-5 text-sm text-slate-400">
+              Event research is temporarily unavailable.
+            </p>
+          )}
+          {research?.history.length ? (
+            <section className="border border-line bg-panel">
+              <div className="flex items-center justify-between border-b border-line px-5 py-3">
+                <h2 className="text-sm font-semibold text-bone">Yes probability over time</h2>
+                <span className="font-mono text-[11px] text-slate-400">
+                  {research?.sources.includes("polymarket-clob")
+                    ? "Polymarket · historical observations"
+                    : "Probability history unavailable"}
+                </span>
+              </div>
+              <ProbabilityChart history={research?.history ?? []} />
+            </section>
+          ) : (
+            <p className="border border-line bg-panel px-5 py-3 text-xs leading-6 text-slate-500">
+              Panta has no compatible probability history for this event yet. Momentum, RSI, and
+              historical volatility remain unavailable.
+            </p>
+          )}
 
-          <section className="border border-line bg-panel">
-            <h2 className="border-b border-line px-5 py-3 text-sm font-semibold text-bone">
-              Historical statistics
-            </h2>
-            <dl className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3 xl:grid-cols-4">
-              {statTiles.map(([label, value, tone]) => (
-                <div key={label} className="bg-panel px-5 py-3.5">
-                  <dt className="data-label">{label}</dt>
-                  <dd className={`num mt-1.5 text-base ${tone || "text-bone"}`}>{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+          {Boolean(research?.history.length) && (
+            <section className="border border-line bg-panel">
+              <h2 className="border-b border-line px-5 py-3 text-sm font-semibold text-bone">
+                Historical statistics
+              </h2>
+              <dl className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3 xl:grid-cols-4">
+                {statTiles.map(([label, value, tone]) => (
+                  <div key={label} className="bg-panel px-5 py-3.5">
+                    <dt className="data-label">{label}</dt>
+                    <dd className={`num mt-1.5 text-base ${tone || "text-bone"}`}>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
+          {research && <PredictionResearchPanel research={research} section="details" />}
 
           {underlying && (
             <section className="border border-line bg-panel">
@@ -190,10 +215,7 @@ export default async function PredictionMarketPage({
               {edge != null && (
                 <p className="border-t border-line px-5 py-3 text-[13px] text-slate-300">
                   The volatility model puts YES{" "}
-                  <span className={`num ${signTone(edge)}`}>
-                    {edge > 0 ? "+" : ""}
-                    {edge.toFixed(1)} pts
-                  </span>{" "}
+                  <span className={`num ${signTone(edge)}`}>{Math.abs(edge).toFixed(1)} pts</span>{" "}
                   {edge >= 0 ? "above" : "below"} the market price. The model assumes no drift and
                   constant volatility; treat it as one input, not a forecast.
                 </p>
@@ -273,7 +295,8 @@ export default async function PredictionMarketPage({
               </dl>
             ) : (
               <p className="px-5 py-4 text-[13px] text-slate-400">
-                Order book depth is unavailable.
+                This market has no compatible order book. A live Panta quote determines executable
+                price and fees.
               </p>
             )}
           </section>

@@ -62,8 +62,8 @@ const safeguards = [
     "Every draft carries a cancel-all-and-halt action and declares sandbox limits for CPU, memory, and network access.",
   ],
   [
-    "Paper before capital",
-    "Paper accounts for markets and prediction markets let you test a thesis before funding it.",
+    "Practice by choice",
+    "Live order entry is the default. Optional practice accounts let you rehearse a thesis before funding it.",
   ],
 ] as const;
 

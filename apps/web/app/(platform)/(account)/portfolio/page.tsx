@@ -192,9 +192,14 @@ export default async function PortfolioPage({
           </div>
         )}
       </section>
-      <div className="mx-4 mt-4 md:mx-6">
-        <PredictionPaperAccount />
-      </div>
+      <details className="mx-4 mt-4 border border-line md:mx-6">
+        <summary className="cursor-pointer px-4 py-3 text-xs text-slate-400">
+          Practice account
+        </summary>
+        <div className="px-4 pb-4">
+          <PredictionPaperAccount />
+        </div>
+      </details>
       <section className="m-4 border border-line bg-panel p-5 md:m-6">
         <p className="eyebrow">Trading funds</p>
         <h2 className="mt-2 text-base font-semibold text-slate-100">Funding wallet</h2>
