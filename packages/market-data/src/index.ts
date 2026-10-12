@@ -1015,16 +1015,21 @@ export class PantaPredictionProvider {
       latencyMs: Date.now() - startedAt,
     };
     const markets = new Map<string, PredictionMarket>();
+    const knownTitles = new Map(this.cache?.markets.map((market) => [market.id, market.title]));
     const incomplete = new Set<string>();
     for (const item of items) {
-      const market = parsePantaApiMarket(item, quality);
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const id = typeof row.marketId === "string" ? row.marketId : row.id;
+      const market =
+        parsePantaApiMarket(item, quality) ??
+        (typeof id === "string" && knownTitles.has(id)
+          ? parsePantaApiMarket({ ...row, title: knownTitles.get(id) }, quality)
+          : null);
       if (market) {
         markets.set(market.id, market);
         continue;
       }
-      if (!item || typeof item !== "object") continue;
-      const row = item as Record<string, unknown>;
-      const id = typeof row.marketId === "string" ? row.marketId : row.id;
       const closesAt = pantaCloseTime(row);
       if (
         typeof id === "string" &&
@@ -1039,22 +1044,29 @@ export class PantaPredictionProvider {
     for (let start = 0; start < ids.length && !signal.aborted; start += 4) {
       await Promise.all(
         ids.slice(start, start + 4).map(async (id) => {
-          try {
-            const response = await this.fetcher(
-              `${this.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(id)}/`,
-              {
-                headers: {
-                  accept: "application/json",
-                  ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
+          for (let attempt = 0; attempt < 2 && !signal.aborted; attempt++) {
+            try {
+              const response = await this.fetcher(
+                `${this.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(id)}/`,
+                {
+                  headers: {
+                    accept: "application/json",
+                    ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
+                  },
+                  signal,
                 },
-                signal,
-              },
-            );
-            if (!response.ok) return;
-            const market = parsePantaApiMarket(await response.json(), quality);
-            if (market?.id === id) markets.set(id, market);
-          } catch {
-            // A failed metadata lookup must not hide the other complete catalog rows.
+              );
+              if (!response.ok) return;
+              const market = parsePantaApiMarket(await response.json(), quality);
+              if (market?.id === id) {
+                markets.set(id, market);
+                return;
+              }
+              // A successful response can still omit metadata when Panta's RPC read fails.
+            } catch {
+              // A failed metadata lookup must not hide the other complete catalog rows.
+              return;
+            }
           }
         }),
       );

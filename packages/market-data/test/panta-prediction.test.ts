@@ -101,6 +101,38 @@ describe("PantaPredictionProvider", () => {
     expect((await provider.listOpenMarkets()).map((market) => market.id)).toEqual(["complete123"]);
   });
 
+  it("retries an incomplete detail response and retains its recovered title on refresh", async () => {
+    const catalog = { items: [{ marketId: "incomplete123", title: "", phase: "secondary" }] };
+    let detailCalls = 0;
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      if (!url.includes("/incomplete123/")) return Response.json(catalog);
+      detailCalls++;
+      return Response.json(
+        detailCalls === 1
+          ? catalog.items[0]
+          : {
+              marketId: "incomplete123",
+              title: "Recovered event title",
+              phase: "secondary",
+            },
+      );
+    });
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    expect((await provider.listOpenMarkets())[0]?.title).toBe("Recovered event title");
+    expect(detailCalls).toBe(2);
+    const refreshed = await (
+      provider as unknown as {
+        loadMarkets: () => Promise<Array<{ title: string }>>;
+      }
+    ).loadMarkets();
+    expect(refreshed[0]?.title).toBe("Recovered event title");
+    expect(detailCalls).toBe(2);
+  });
+
   it("rejects a repeated cursor instead of treating a partial catalog as complete", async () => {
     const fetcher = vi
       .fn()
