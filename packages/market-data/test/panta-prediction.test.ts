@@ -31,7 +31,7 @@ describe("PantaPredictionProvider", () => {
           row("expired123", { endTime: future - 172800 }),
           row("cancelled123", { phase: "cancelled" }),
           row("settled123", { status: "resolved" }),
-          row("blank123", { title: "   " }),
+          row("blank123", { title: "   ", resolved: true }),
         ],
         nextCursor: null,
       });
@@ -45,6 +45,60 @@ describe("PantaPredictionProvider", () => {
     expect(markets.map((market) => market.id)).toEqual(["primary123", "secondary123"]);
     expect(markets[1]?.closesAt).toBe(new Date(future * 1000).toISOString());
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers missing active catalog titles from detail without hydrating the archive", async () => {
+    const future = Math.floor(Date.now() / 1000) + 86400;
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/incomplete123/"))
+        return Response.json({
+          marketId: "incomplete123",
+          title: "Will GTA 6 release before the deadline?",
+          phase: "secondary",
+          endTime: future,
+          yesPrice: "0.4",
+          noPrice: "0.6",
+        });
+      return Response.json({
+        items: [
+          { marketId: "primary123", title: "Complete title", endTime: future },
+          { marketId: "incomplete123", title: "", phase: "secondary", endTime: future },
+          { marketId: "resolved123", title: "", resolved: true, endTime: future },
+          { marketId: "expired123", title: "", endTime: future - 172800 },
+        ],
+        nextCursor: null,
+      });
+    });
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    const markets = await provider.listOpenMarkets(100);
+    expect(markets.map((market) => market.id)).toEqual(["primary123", "incomplete123"]);
+    expect(markets[1]?.title).toBe("Will GTA 6 release before the deadline?");
+    expect(markets[1]?.pricingAvailable).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps complete rows when missing-title detail is unavailable", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [
+            { marketId: "complete123", title: "Complete event" },
+            { marketId: "incomplete123", title: "" },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+    );
+    expect((await provider.listOpenMarkets()).map((market) => market.id)).toEqual(["complete123"]);
   });
 
   it("rejects a repeated cursor instead of treating a partial catalog as complete", async () => {

@@ -1015,9 +1015,49 @@ export class PantaPredictionProvider {
       latencyMs: Date.now() - startedAt,
     };
     const markets = new Map<string, PredictionMarket>();
+    const incomplete = new Set<string>();
     for (const item of items) {
       const market = parsePantaApiMarket(item, quality);
-      if (market) markets.set(market.id, market);
+      if (market) {
+        markets.set(market.id, market);
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const id = typeof row.marketId === "string" ? row.marketId : row.id;
+      const closesAt = pantaCloseTime(row);
+      if (
+        typeof id === "string" &&
+        !pantaMarketClosed(row) &&
+        (!closesAt || closesAt * 1000 > Date.now())
+      )
+        incomplete.add(id);
+    }
+    // Some registry rows omit the event title; detail can recover its on-chain metadata.
+    // Keep requests bounded and skip resolved/expired rows rather than RPC-reading the archive.
+    const ids = [...incomplete];
+    for (let start = 0; start < ids.length && !signal.aborted; start += 4) {
+      await Promise.all(
+        ids.slice(start, start + 4).map(async (id) => {
+          try {
+            const response = await this.fetcher(
+              `${this.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(id)}/`,
+              {
+                headers: {
+                  accept: "application/json",
+                  ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
+                },
+                signal,
+              },
+            );
+            if (!response.ok) return;
+            const market = parsePantaApiMarket(await response.json(), quality);
+            if (market?.id === id) markets.set(id, market);
+          } catch {
+            // A failed metadata lookup must not hide the other complete catalog rows.
+          }
+        }),
+      );
     }
     return [...markets.values()];
   }
@@ -1104,6 +1144,36 @@ export class PantaPredictionProvider {
 /** Backward-compatibility alias for PantaPredictionProvider. */
 export { PantaPredictionProvider as JupiterPredictionProvider };
 
+function pantaTimestamp(value: unknown): number | null {
+  const seconds =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? /^\d+(\.\d+)?$/.test(value)
+          ? Number(value)
+          : Date.parse(value) / 1000
+        : Number.NaN;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+function pantaCloseTime(item: Record<string, unknown>): number | null {
+  return (
+    pantaTimestamp(item.endTime) ??
+    pantaTimestamp(item.resolutionTime) ??
+    pantaTimestamp(item.closeTime)
+  );
+}
+
+function pantaMarketClosed(item: Record<string, unknown>): boolean {
+  return (
+    item.resolved === true ||
+    item.cancelled === true ||
+    [item.status, item.phase].some((phase) =>
+      ["resolved", "cancelled", "closed"].includes(String(phase).toLowerCase()),
+    )
+  );
+}
+
 function parsePantaApiMarket(
   raw: unknown,
   quality: PredictionMarket["quality"],
@@ -1138,22 +1208,8 @@ function parsePantaApiMarket(
       : typeof item.imageUrl === "string"
         ? item.imageUrl
         : null;
-  const timestamp = (value: unknown) => {
-    const seconds =
-      typeof value === "number"
-        ? value
-        : typeof value === "string"
-          ? /^\d+(\.\d+)?$/.test(value)
-            ? Number(value)
-            : Date.parse(value) / 1000
-          : Number.NaN;
-    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
-  };
-  const startTime = timestamp(item.startTime);
-  const endTime = timestamp(item.endTime);
-  const resolutionTime = timestamp(item.resolutionTime);
-  const closeSec =
-    endTime ?? resolutionTime ?? (typeof item.closeTime === "number" ? item.closeTime : null);
+  const startTime = pantaTimestamp(item.startTime);
+  const closeSec = pantaCloseTime(item);
   const closesAt = closeSec ? new Date(closeSec * 1000).toISOString() : null;
   const openedAt = startTime ? new Date(startTime * 1000).toISOString() : null;
   const volumeUsd =
@@ -1217,14 +1273,7 @@ function parsePantaApiMarket(
     venueTokenIds: [],
     resolutionRules,
     closesAt,
-    status:
-      item.resolved === true ||
-      item.cancelled === true ||
-      [item.status, item.phase].some((phase) =>
-        ["resolved", "cancelled", "closed"].includes(String(phase).toLowerCase()),
-      )
-        ? "closed"
-        : "open",
+    status: pantaMarketClosed(item) ? "closed" : "open",
     outcomes: [
       {
         id: `${marketId}:yes`,
