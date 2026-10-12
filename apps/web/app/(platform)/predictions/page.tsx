@@ -179,9 +179,13 @@ export default async function PredictionsPage({
                             </span>
                             <span className="text-[11px] capitalize text-slate-400">
                               {[market.category, market.subcategory].filter(Boolean).join(" · ")}
-                              {market.pricingAvailable === false
-                                ? " · Open for live pricing"
-                                : " · View evidence"}
+                              {market.quality.source === "panta-onchain"
+                                ? market.quality.status === "stale"
+                                  ? " · Stale indicative prices"
+                                  : " · Indicative prices"
+                                : market.pricingAvailable === false
+                                  ? " · Open for live pricing"
+                                  : " · View evidence"}
                             </span>
                           </Link>
                         </td>

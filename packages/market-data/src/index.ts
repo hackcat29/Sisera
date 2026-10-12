@@ -764,14 +764,14 @@ const PANTA_EVENT_DISCRIMINATOR_BASE64 = Buffer.from(PANTA_EVENT_DISCRIMINATOR).
 
 /**
  * Panta Market prediction provider.
- * Connects to Panta Market API (https://live-api.panta.market/api/v1) when available.
- * If the API is not available (or no API key), directly queries on-chain Solana state
- * from the Balr / Panta market program (6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp),
- * mirroring the market maker bot runtime.
+ * Combines Panta's USDC API registry with its on-chain Event directory, which
+ * also contains legacy P2P markets omitted by the registry. On-chain state is
+ * also the fallback when the API is unavailable or no API key is configured.
  */
 export class PantaPredictionProvider {
   private cache: { until: number; markets: PredictionMarket[] } | null = null;
   private pending: Promise<PredictionMarket[]> | null = null;
+  private registryIds = new Set<string>();
 
   constructor(
     private readonly baseUrl = "https://live-api.panta.market/api/v1",
@@ -795,6 +795,10 @@ export class PantaPredictionProvider {
   async getMarket(id: string): Promise<PredictionMarket | null> {
     const markets = await this.loadAll();
     const found = markets.find((market) => market.id === id);
+    // Legacy P2P accounts are absent from the USDC registry. The detail endpoint
+    // mislabels their SOL amounts as USDC and can return incompatible secondary
+    // last trades (e.g. YES=1 and NO=1). Keep their on-chain reference data.
+    if (found?.quality.source === "panta-onchain" && !this.registryIds.has(id)) return found;
     // Catalog prices may be null; market detail refreshes on-chain spot prices.
 
     // Direct lookup via Panta API if configured
@@ -1015,12 +1019,14 @@ export class PantaPredictionProvider {
       latencyMs: Date.now() - startedAt,
     };
     const markets = new Map<string, PredictionMarket>();
+    const registryIds = new Set<string>();
     const knownTitles = new Map(this.cache?.markets.map((market) => [market.id, market.title]));
     const incomplete = new Set<string>();
     for (const item of items) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const id = typeof row.marketId === "string" ? row.marketId : row.id;
+      if (typeof id === "string") registryIds.add(id);
       const market =
         parsePantaApiMarket(item, quality) ??
         (typeof id === "string" && knownTitles.has(id)
@@ -1071,6 +1077,23 @@ export class PantaPredictionProvider {
         }),
       );
     }
+    // The REST registry is not a complete directory: active legacy P2P markets
+    // visible on panta.market can be absent from every catalog page. Discover
+    // those accounts every refresh, rather than using chain discovery only
+    // when the API fails. Registry entries remain authoritative for USDC markets.
+    try {
+      const onchain = await this.fetchOnChain(startedAt);
+      for (const market of onchain) {
+        if (!markets.has(market.id)) markets.set(market.id, market);
+      }
+    } catch {
+      // A transient RPC failure must not remove previously discovered P2P events.
+      for (const market of this.cache?.markets ?? []) {
+        if (market.quality.source === "panta-onchain" && !markets.has(market.id))
+          markets.set(market.id, { ...market, quality: { ...market.quality, status: "stale" } });
+      }
+    }
+    this.registryIds = registryIds;
     return [...markets.values()];
   }
 
@@ -1104,7 +1127,8 @@ export class PantaPredictionProvider {
     const payload = (await response.json()) as {
       result?: Array<{ pubkey?: string; account?: { data?: [string, ...unknown[]] } }>;
     };
-    const accounts = Array.isArray(payload?.result) ? payload.result : [];
+    if (!Array.isArray(payload?.result)) throw new Error("Panta on-chain directory unavailable");
+    const accounts = payload.result;
     const quality = {
       status: "live" as const,
       source: "panta-onchain",
@@ -1180,6 +1204,8 @@ function pantaMarketClosed(item: Record<string, unknown>): boolean {
   return (
     item.resolved === true ||
     item.cancelled === true ||
+    item.isResolved === true ||
+    item.isCancelled === true ||
     [item.status, item.phase].some((phase) =>
       ["resolved", "cancelled", "closed"].includes(String(phase).toLowerCase()),
     )
@@ -1200,13 +1226,16 @@ function parsePantaApiMarket(
         : null;
   if (!marketId) return null;
   const title =
-    typeof item.title === "string"
+    typeof item.title === "string" && item.title.trim()
       ? item.title
       : typeof item.question === "string"
         ? item.question
         : "";
   if (!title.trim()) return null;
-  const category = typeof item.category === "string" ? item.category : "General";
+  const categoryName = typeof item.category === "string" ? item.category.trim() : "";
+  const category = categoryName
+    ? categoryName[0]?.toUpperCase() + categoryName.slice(1).toLowerCase()
+    : "General";
   const subcategory =
     typeof item.marketType === "string"
       ? item.marketType
@@ -1322,7 +1351,6 @@ function decodePantaEventAccount(
     const virtualYesShares = Number(b.readBigUInt64LE(offset));
     offset += 16;
     offset += 16; // lastYesPrice
-    const totalVolume = Number(b.readBigUInt64LE(offset));
     offset += 16;
     offset += 16 + 16 + 8 + 16 + 16 + 16 + 16 + 16 + 8 + 16; // remaining metrics
 
@@ -1355,7 +1383,7 @@ function decodePantaEventAccount(
 
     offset += 16; // activeVolume
     offset += 3; // bumps
-    const isActive = b.readUInt8(offset++) === 1;
+    offset++; // isActive (phase flag; graduated events may still be open)
     const isGraduated = b.readUInt8(offset++) === 1;
     const isResolved = b.readUInt8(offset++) === 1;
     const isCancelled = b.readUInt8(offset++) === 1;
@@ -1365,19 +1393,18 @@ function decodePantaEventAccount(
     const yes = Math.min(Math.max(rawYes, 0.01), 0.99);
     const no = 1 - yes;
 
-    const sourceCat = sources[0] ?? "";
     let category = "General";
-    const textTarget = `${sourceCat} ${question}`;
-    if (/crypto|btc|eth|sol/i.test(textTarget)) category = "Crypto";
+    const textTarget = `${sources.join(" ")} ${question}`;
+    if (/crypto|\bbtc\b|\beth\b|\bsol\b|\bhype\b|bitcoin/i.test(textTarget)) category = "Crypto";
     else if (/sport|cup|fifa|goal|fight|nba|nfl/i.test(textTarget)) category = "Sports";
     else if (/politics|election|minister|president|senate/i.test(textTarget)) category = "Politics";
     else if (/finance|economy|market|treasury/i.test(textTarget)) category = "Finance";
 
     const closeSec =
-      Number(resolutionTime) > 0
-        ? Number(resolutionTime)
-        : Number(endTime) > 0
-          ? Number(endTime)
+      Number(endTime) > 0
+        ? Number(endTime)
+        : Number(resolutionTime) > 0
+          ? Number(resolutionTime)
           : null;
     const closesAt = closeSec ? new Date(closeSec * 1000).toISOString() : null;
     const openedAt =
@@ -1387,6 +1414,7 @@ function decodePantaEventAccount(
       id: pubkey,
       provider: "panta",
       underlyingProvider: "panta",
+      pricingAvailable: totalLiquidity > 0,
       title: question,
       eventId: pubkey,
       eventTitle: question,
@@ -1396,9 +1424,10 @@ function decodePantaEventAccount(
       imageUrl: null,
       openedAt,
       closesAt,
-      volumeUsd: totalVolume > 0 ? (totalVolume / 1e9) * 150 : null,
-      eventVolume24hUsd: totalVolume > 0 ? (totalVolume / 1e9) * 150 : null,
-      venueTokenIds: [pubkey],
+      // Legacy accounts contain SOL totals, not USD or a rolling 24h volume.
+      volumeUsd: null,
+      eventVolume24hUsd: null,
+      venueTokenIds: [],
       resolutionRules: resolutionRule || "Resolved according to on-chain Panta rules.",
       status: isResolved || isCancelled ? "closed" : "open",
       outcomes: [

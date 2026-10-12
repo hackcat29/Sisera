@@ -1,8 +1,65 @@
 import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { PantaPredictionProvider } from "../src/index.js";
+import directory from "./fixtures/panta-p2p-accounts.json";
+
+// These catalog-focused cases explicitly model an empty supplemental directory.
+const registryOnly =
+  (fetcher: typeof globalThis.fetch): typeof globalThis.fetch =>
+  (url, init) =>
+    String(url).includes("panta.market")
+      ? fetcher(url, init)
+      : Promise.resolve(Response.json({ result: [] }));
 
 describe("PantaPredictionProvider", () => {
+  it("supplements the registry with active P2P accounts and keeps their detail consistent", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-12T09:00:00Z"));
+    const registered = "CLQqZ7r6WYC5xNumWrmC7UAkQ1Z6pdCbjJSy7wQu1DgL";
+    const p2p = "3Ry1mLYLHwiUARNY4U6JQ3PdSBTC5gt8tsynVgfc78FM";
+    let rpcAvailable = true;
+    const fetcher = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "https://rpc.test") {
+        expect(JSON.parse(String(init?.body)).method).toBe("getProgramAccounts");
+        if (!rpcAvailable) return Response.json({ error: { code: -32000 } });
+        return Response.json(directory);
+      }
+      if (url.includes(`/${p2p}/`))
+        throw new Error("USDC detail must not replace legacy reference prices or currency");
+      return Response.json({
+        items: [{ marketId: registered, title: "Registered USDC event", endTime: 1798815600 }],
+      });
+    });
+    const provider = new PantaPredictionProvider(
+      "https://live-api.panta.market/api/v1",
+      "key",
+      fetcher,
+      "https://rpc.test",
+    );
+    try {
+      const markets = await provider.listOpenMarkets(100);
+      // Excludes both a resolved event and an ended event awaiting resolution.
+      expect(markets.map((market) => market.id)).toEqual([registered, p2p]);
+      expect(markets[0]?.title).toBe("Registered USDC event");
+      const detail = await provider.getMarket(p2p);
+      expect(detail).toEqual(markets[1]);
+      expect(detail?.category).toBe("Finance");
+      expect(Number(detail?.outcomes[0]?.probability)).toBeCloseTo(0.4357, 4);
+      expect(Number(detail?.outcomes[1]?.probability)).toBeCloseTo(0.5643, 4);
+      expect(detail?.volumeUsd).toBeNull();
+      expect(detail?.eventVolume24hUsd).toBeNull();
+      expect(detail?.venueTokenIds).toEqual([]);
+      expect(detail?.resolutionRules).toContain("$60 billion");
+
+      rpcAvailable = false;
+      await (provider as unknown as { loadMarkets: () => Promise<unknown> }).loadMarkets();
+      const retained = (await provider.listOpenMarkets(100)).find((m) => m.id === p2p);
+      expect(retained?.quality.status).toBe("stale");
+      expect(retained?.quality.observedAt).toBe(detail?.quality.observedAt);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("discovers secondary markets on later pages and excludes ineligible events", async () => {
     const future = Math.floor(Date.now() / 1000) + 86400;
     const row = (marketId: string, fields: Record<string, unknown> = {}) => ({
@@ -39,7 +96,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     const markets = await provider.listOpenMarkets(100);
     expect(markets.map((market) => market.id)).toEqual(["primary123", "secondary123"]);
@@ -72,7 +129,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     const markets = await provider.listOpenMarkets(100);
     expect(markets.map((market) => market.id)).toEqual(["primary123", "incomplete123"]);
@@ -96,7 +153,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     expect((await provider.listOpenMarkets()).map((market) => market.id)).toEqual(["complete123"]);
   });
@@ -120,7 +177,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     expect((await provider.listOpenMarkets())[0]?.title).toBe("Recovered event title");
     expect(detailCalls).toBe(2);
@@ -140,7 +197,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     await expect(provider.listOpenMarkets()).rejects.toThrow("pagination did not complete");
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -159,7 +216,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     await expect(provider.listOpenMarkets()).rejects.toThrow("Panta API responded with 503");
   });
@@ -191,7 +248,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "key",
-      fetcher,
+      registryOnly(fetcher),
     );
     expect((await provider.listOpenMarkets())[0]?.resolutionRules).toBeNull();
     const detail = await provider.getMarket("native123");
@@ -220,7 +277,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "test",
-      fetcher,
+      registryOnly(fetcher),
     );
     const markets = await provider.listOpenMarkets();
     expect(markets[0]?.pricingAvailable).toBe(false);
@@ -253,7 +310,7 @@ describe("PantaPredictionProvider", () => {
     const provider = new PantaPredictionProvider(
       "https://live-api.panta.market/api/v1",
       "panta-api-key",
-      fetcher,
+      registryOnly(fetcher),
     );
 
     const markets = await provider.listOpenMarkets();

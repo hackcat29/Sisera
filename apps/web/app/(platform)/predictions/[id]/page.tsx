@@ -106,6 +106,14 @@ export default async function PredictionMarketPage({
               Closes {new Date(market.closesAt).toUTCString()}
             </p>
           )}
+          {market.quality.source === "panta-onchain" && (
+            <p className="mt-2 text-xs text-slate-400">
+              {market.quality.status === "stale"
+                ? "Last known indicative prices; refresh temporarily unavailable."
+                : "Indicative prices."}{" "}
+              Executable offers and fees are confirmed by a live venue quote.
+            </p>
+          )}
         </div>
         <div className="flex gap-px border border-line bg-line">
           <div className="bg-panel px-6 py-3 text-center">
