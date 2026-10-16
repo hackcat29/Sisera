@@ -4,12 +4,32 @@
 
 Sisera gives traders one place to discover stock-linked markets, understand what is moving them, compare onchain prices with reference values, execute, manage a single portfolio, and deploy agents that trade continuously inside explicit capital and risk limits. Tokenized stocks are treated as financial instruments, not as SPL tokens with a chart and a swap button: every market carries reference pricing, valuation context, liquidity analysis, portfolio exposure, execution quality, classified news and events, and an auditable history of how both humans and agents acted on it.
 
-Live at **[sisera.xyz](https://sisera.xyz)** · Repository on **[GitHub](https://github.com/hackcat29/Sisera)**.
+Live at **[sisera.xyz](https://sisera.xyz)** · Documentation at **[docs.sisera.xyz](https://docs.sisera.xyz)** · Repository on **[GitHub](https://github.com/hackcat29/Sisera)**.
 
-```text
-discover → understand fair value → see the events moving it → ask Sisera AI → measure portfolio impact
-        → execute onchain → deploy an agent → launch the agent's token and liquidity → manage one portfolio
-```
+[![DEX Screener Enhanced Token Info Paid](https://img.shields.io/badge/DEX_Screener-Enhanced_Token_Info_Paid-10B981?style=for-the-badge&logo=chart&logoColor=white)](https://dexscreener.com/solana/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)
+[![Solana CA](https://img.shields.io/badge/Solana_CA-4eTkn...Uh5-14F195?style=for-the-badge&logo=solana&logoColor=black)](https://dexscreener.com/solana/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)
+
+---
+
+## $SISERA Token & How to Buy
+
+> **Official Solana Contract Address (CA):**  
+> `4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5`  
+> *(Tap or copy the address above. Always verify against official channels before transacting).*
+
+✨ **Verified Listing:** DEX Screener Enhanced Token Info has been officially paid for and verified by the Sisera project team.
+
+### How to Buy
+
+1. **Set Up a Solana Wallet:** Install a trusted Solana wallet such as [Phantom](https://phantom.app/), [Solflare](https://solflare.com/), or [Backpack](https://backpack.app/).
+2. **Fund Wallet with SOL:** Deposit SOL into your wallet from an exchange or onchain transfer to cover the purchase and minimal Solana network fees.
+3. **Swap for $SISERA:** Connect your wallet to any of the official venues below and swap SOL for `$SISERA` using the official CA:
+   - **[Pump.fun](https://pump.fun/coin/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)**
+   - **[FOMO](https://fomo.family/token/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)**
+   - **[Clawpump](https://clawpump.tech/tokens/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)**
+   - **[DEX Screener Live Chart](https://dexscreener.com/solana/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5)**
+
+🔒 **Security Reminder:** Sisera is strictly non-custodial. Team members and admins will **never** direct message you first, ask for your private keys, or send unverified transaction links.
 
 ---
 
