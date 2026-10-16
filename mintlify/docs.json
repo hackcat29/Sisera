@@ -97,5 +97,6 @@
       "github": "https://github.com/hackcat29/Sisera",
       "website": "https://sisera.xyz"
     }
-  }
+  },
+  "description": "Sisera is the trading and intelligence terminal for tokenized equities, private markets (PreStocks), and autonomous agents on Solana.\n\n🏛️ Public & Private Equities: Trade 24/7 tokenized stocks (xStocks) with live Pyth Core fair-value feeds alongside pre-IPO private markets (OpenAI, Anthropic, SpaceX, Neuralink, Kalshi, Anduril) ranked by mark-to-market gaps.\n\n🌐 Multi-Venue Execution: Trade Solana equities, Binance Spot, Hyperliquid Perps (with HyperEVM bridging), and Jupiter Prediction Markets from one interface.\n\n🧠 Intelligence & Deterministic AI: Corroborated SEC EDGAR filings, macro/chain data, social feeds, and Sisera AI—compiling natural-language theses into deterministic, risk-checked policies.\n\n🤖 Autonomous Agents & Marketplace: 24/7 agents governed by immutable manifests, 6 autonomy levels, circuit breakers, and a 7-stage promotion pipeline. Monetize strategies in USDC on the Marketplace.\n\n⚡ Clawpump & Meteora DBC: Launch agent tokens paired directly against stocks (NVDAx, AAPLx, TSLAx) on programmable bonding curves.\n\n🛡️ Non-custodial, fail-closed, and open-source."
 }
