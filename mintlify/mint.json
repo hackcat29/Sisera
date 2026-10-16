@@ -62,7 +62,7 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "quickstart", "architecture"]
+      "pages": ["introduction", "architecture"]
     },
     {
       "group": "Markets & Execution",
