@@ -1,0 +1,80 @@
+---
+title: "Markets, Intelligence & Order Endpoints"
+sidebarTitle: "Markets & Intelligence"
+description: "REST endpoints for the Asset Catalog, xStocks, PreStocks, Pyth Core feeds, Corroborated Intelligence, Rankings, and Multi-Venue Orders."
+icon: "chart-mixed"
+---
+
+## Asset Catalog, xStocks & PreStocks
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/catalog/assets` | `market:read` | Returns the unified catalog of public tokenized equities (`public_equity`), PreStocks (`pre_ipo`), and indexed agent tokens (`agent_token`). |
+| `GET` | `/v1/catalog/assets/:key` | `market:read` | Returns full valuation, Pyth reference or issuer mark, liquidity, and event context for a single catalog asset key. |
+| `GET` | `/v1/public-stocks` | `market:read` | Lists all supported Solana tokenized public equities (xStocks) with live prices and Pyth reference spreads. |
+| `GET` | `/v1/private-markets` | `market:read` | Lists all PreStocks pre-IPO markets (OpenAI, Anthropic, SpaceX, etc.) with live token price, issuer mark, and implied valuation gap. |
+| `GET` | `/v1/pyth/reference` | `market:read` | Fetches the latest Pyth Core equity reference price and `feedUpdateTimestamp` for a symbol. |
+| `GET` | `/v1/pyth/references` | `market:read` | Batch-fetches Pyth Core equity reference prices across the xStocks universe. |
+
+---
+
+## Corroborated Intelligence & Move Explanation
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/intelligence/events` | `market:read` | Returns clustered `MarketEvent` records with `SourceTier`, `EventCategory`, `Severity`, `Sentiment`, and `Certainty`. |
+| `GET` | `/v1/intelligence/assets/:key/events` | `market:read` | Returns corroborated events and SEC EDGAR filings mapped specifically to `:key`. |
+| `GET` | `/v1/intelligence/assets/:key/explain` | `market:read` | Generates an explainable attribution of why `:key` is moving based on recent filings, corroborated news, and reference dislocations. |
+| `GET` | `/v1/intelligence/changes` | `market:read` | Summarizes what changed across the watched universe over a specified lookback window (e.g., last 1h or 24h). |
+| `GET` | `/v1/intelligence/macro` | `market:read` | Returns macroeconomic regime events, central bank rate releases, and chain liquidity context. |
+| `GET` | `/v1/stocks/:symbol/news` | `market:read` | Fetches classified company articles with publication provenance. |
+| `POST` | `/v1/stocks/:symbol/assessment` | `market:read` | Generates a schema-validated bull case, bear case, and valuation assessment for `:symbol`. |
+
+---
+
+## Opportunity Rankings & Basis Arbitrage
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/rankings/fair-value` | `market:read` | Ranks public tokenized equities by discount/premium to Pyth reference, liquidity, or news intensity. |
+| `GET` | `/v1/rankings/private` | `market:read` | Ranks PreStocks markets by `gap_to_mark`, `deepest_discount`, `highest_premium`, `liquidity`, `momentum`, `news_intensity`, or `portfolio_fit`. |
+| `GET` | `/v1/arbitrage/basis` | `market:read` | Computes live basis spreads across Solana tokenized equities, Pyth reference quotes, and perpetual venues. |
+| `POST` | `/v1/arbitrage/arm` | `trade:execute` | Arms a deterministic basis-reversion policy when the fair-value gap exceeds your target threshold. |
+
+---
+
+## Multi-Venue Order Execution & Bridging
+
+<Tabs>
+  <Tab title="Solana Swaps (Jupiter)">
+    | Method | Endpoint | Description |
+    | --- | --- | --- |
+    | `GET` | `/v1/solana/quote` | Fetches an indicative Jupiter v2 swap route without creating an order. |
+    | `POST` | `/v1/solana/orders/paper` | Executes a risk-checked paper Solana swap and records the fill in the paper book. |
+    | `POST` | `/v1/solana/orders/prepare` | Runs pre-trade risk validation and returns an unsigned Solana transaction for wallet signing. |
+    | `POST` | `/v1/solana/orders/:id/execute` | Verifies signed transaction bytes against the prepared order and broadcasts to Solana RPC. |
+    | `GET` | `/v1/solana/orders` | Lists historical Solana orders for the authenticated account. |
+  </Tab>
+
+  <Tab title="Spot, Perps & Predictions">
+    | Method | Endpoint | Description |
+    | --- | --- | --- |
+    | `GET` | `/v1/markets` | Lists Binance Spot and Hyperliquid Perpetual markets. |
+    | `GET` | `/v1/markets/:symbol/candles` | Returns verified venue OHLCV candles. |
+    | `GET` | `/v1/markets/:symbol/depth` | Returns L2 order book depth (`l2Book` / `/api/v3/depth`). |
+    | `POST` | `/v1/market-orders/paper` | Places a risk-checked paper Spot order. |
+    | `POST` | `/v1/market-orders/binance/live` | Executes a live Binance Spot order (when `SISERA_LIVE_BINANCE_ENABLED=true`). |
+    | `GET` | `/v1/prediction-markets` | Lists active Jupiter / Polymarket Gamma prediction contracts. |
+    | `POST` | `/v1/prediction-orders/prepare` | Prepares a risk-checked live prediction market order. |
+    | `POST` | `/v1/prediction-orders/:id/execute` | Broadcasts a verified signed prediction market transaction. |
+  </Tab>
+
+  <Tab title="HyperEVM Bridge">
+    | Method | Endpoint | Description |
+    | --- | --- | --- |
+    | `GET` | `/v1/wallets/hyperevm/:address` | Inspects HyperEVM wallet balances and clearinghouse state. |
+    | `POST` | `/v1/bridge/quote` | Quotes a cross-chain bridge transfer into HyperEVM/HyperCore. |
+    | `POST` | `/v1/bridge/submission` | Submits a signed bridge transfer for settlement tracking. |
+    | `GET` | `/v1/bridge/status` | Polls finality status of a submitted bridge transfer. |
+  </Tab>
+</Tabs>

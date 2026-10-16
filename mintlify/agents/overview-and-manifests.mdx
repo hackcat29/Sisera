@@ -1,0 +1,112 @@
+---
+title: "Autonomous Agents & Declarative Manifests"
+sidebarTitle: "Overview & Manifests"
+description: "Declarative agent manifests, immutable version hashing, 6 institutional autonomy levels, and append-only decision trails."
+icon: "robot"
+---
+
+Any strategy in Sisera can become a persistent autonomous agent (`/agents` and `@sisera/agent-runtime`) that monitors markets around the clock using the exact same technical, valuation, corroborated event, liquidity, and portfolio intelligence available to a human trader.
+
+---
+
+## Institutional Governance Principles
+
+1. **No Direct Execution:** Agents never execute orders directly against venues. They emit structured trade proposals to the policy evaluator and pre-trade risk engine.
+2. **Deterministic Sandboxing:** Strategies execute inside isolated evaluation contexts with hard caps on maximum allocated capital, per-trade notional, open positions, and slippage budget.
+3. **Immutable Version Hashing:** Every agent configuration is compiled into a cryptographically hashed manifest. Modifying any parameter (universe, entry/exit rule, stop-loss, or capital limit) produces a **new manifest version** that restarts promotion evaluation from `draft`.
+
+---
+
+## The Six Autonomy Levels
+
+Operators assign each agent an explicit autonomy disposition (`POST /v1/agents/:id/autonomy`):
+
+| Level | Identifier | Execution Authority | Human Supervision |
+| --- | --- | --- | --- |
+| **0** | `research` (`RESEARCH`) | Read-only market data and quantitative evaluation. Cannot propose trades. | None |
+| **1** | `suggest` (`SUGGEST`) | Generates trade recommendations and signals with full rule rationale. | Operator must manually create and submit the order. |
+| **2** | `confirm` (`CONFIRM`) | Compiles structured trade proposals (`GET /v1/agent-orders`); awaits one-tap approval. | Mandatory operator approval (`POST /v1/agent-orders/:id/approve`) per trade. |
+| **3** | `policy_auto` (`POLICY_AUTO`) | Automatically executes proposals that strictly satisfy the manifest and risk mandate. | Real-time monitoring; manual pause/kill override (`POST /v1/agents/:id/pause`). |
+| **4** | `autonomous` (`AUTONOMOUS`) | Continuous multi-market execution within risk boundaries. | Daily supervision; automated circuit breakers. |
+| **5** | `risk_only` (`EMERGENCY_RISK_ONLY`) | Dedicated watchdog mode authorized **only** to reduce exposure or close positions. | Post-incident audit review. |
+
+---
+
+## Declarative Manifest Specification
+
+Agents can be authored via YAML manifests (`AGENTS.md`) or structured JSON payloads (`POST /v1/agents` and `POST /v1/agents/:id/versions`):
+
+<CodeGroup>
+```yaml Declarative YAML Manifest
+version: "2.0"
+agent:
+  id: "btc_momentum_alpha_v2"
+  name: "BTC Trend Follower v2"
+  description: "Multi-timeframe trend following with dynamic funding rate filter"
+  autonomy_level: "POLICY_AUTO"
+  lifecycle_stage: "PAPER"
+
+capital_allocation:
+  max_capital_usd: "100000.00"
+  max_trade_notional_usd: "25000.00"
+  max_leverage: "3.0"
+
+strategy:
+  universe:
+    - "binance:BTC/USDT:perpetual"
+    - "hyperliquid:BTC-USD:perpetual"
+  timeframes: ["5m", "1h", "4h"]
+  factors:
+    - name: "ema_cross"
+      parameters: { fast: 12, slow: 26 }
+    - name: "funding_percentile"
+      parameters: { window_days: 14, max_percentile: 85 }
+
+risk_guardrails:
+  max_daily_drawdown_pct: 3.5
+  stop_loss_pct: 1.5
+  take_profit_pct: 4.0
+  max_open_positions: 2
+  kill_switch_action: "CANCEL_ALL_AND_HALT"
+
+execution:
+  algorithm: "SOR_MAKER_FIRST"
+  max_slippage_bps: 2.5
+  urgency: "MEDIUM"
+```
+
+```json Runtime Strategy Version Payload
+{
+  "name": "NVDAx Fair-Value Reversion Agent",
+  "universe": ["NVDAx", "TSLAx"],
+  "timeframe": "1h",
+  "entryConditions": [
+    { "type": "premium_below", "pct": -1.5 },
+    { "type": "rsi_below", "period": 14, "value": 38 },
+    { "type": "no_negative_event", "minSeverity": "high", "lookbackHours": 24, "includeRumors": true }
+  ],
+  "exitConditions": [
+    { "type": "premium_above", "pct": 0.5 },
+    { "type": "rsi_above", "period": 14, "value": 65 }
+  ],
+  "maxCapitalUsd": 50000,
+  "maxTradeNotionalUsd": 10000,
+  "stopLossPct": 2.0,
+  "takeProfitPct": 4.5,
+  "maxDailyDrawdownPct": 3.0,
+  "maxOpenPositions": 2,
+  "maxSlippageBps": 35
+}
+```
+</CodeGroup>
+
+---
+
+## Append-Only Decision Trail
+
+Every 60 seconds, the agent runtime ticks each active agent and writes an immutable decision record to PostgreSQL containing:
+
+- **Observed State:** Exact market prices, Pyth reference premiums, technical indicator values, and active event clusters at tick time.
+- **Rule Evaluation Matrix:** Pass/fail status for every entry and exit condition in the manifest.
+- **Disposition & Risk Outcome:** Whether the tick resulted in `hold`, `propose_entry`, `propose_exit`, or `blocked_by_risk`, along with full pre-trade risk engine attribution.
+- **Agent Book Accounting:** Proposals, fills, realized P&L, and implementation slippage are attributed directly to the agent's isolated book.

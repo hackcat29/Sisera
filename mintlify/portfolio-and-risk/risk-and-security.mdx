@@ -1,0 +1,56 @@
+---
+title: "Pre-Trade Risk, Stress Scenarios & Security Model"
+sidebarTitle: "Risk & Security"
+description: "Inside Sisera's deterministic pre-trade risk engine, 5 shock stress scenarios, Privy RBAC, and non-custodial transaction verification."
+icon: "shield-halved"
+---
+
+Sisera's security and risk architecture (`@sisera/risk`, `@sisera/portfolio`, and `apps/api/src/auth.ts`) is built around a strict institutional premise: **never hold user keys, never trust client-supplied risk limits, and fail closed on missing or stale data.**
+
+---
+
+## Five Institutional Stress Scenarios (`STANDARD_SCENARIOS`)
+
+Every portfolio in Sisera is continuously evaluated against five multi-asset shock scenarios (`GET /v1/portfolio` and `/risk` in the terminal):
+
+| Scenario ID | Scenario Name | Asset Class Shocks & Liquidity Haircuts |
+| --- | --- | --- |
+| `equity_selloff` | **Equity Sell-Off** | Public equities **`-10%`**, Pre-IPO marks **`-20%`**, Agent tokens **`-35%`**, Crypto spot **`-15%`**, Perpetuals **`-15%`**. |
+| `private_mark_reset` | **Private Mark Reset** | Pre-IPO tokens (`pre_ipo`) reprice **`-30%`** lower as primary/secondary issuer valuation marks are cut. |
+| `crypto_crash` | **Crypto Flash Crash** | Crypto spot **`-30%`**, Perpetuals **`-30%`**, Agent tokens **`-60%`**, and Public equities **`-3%`** in an onchain liquidity cascade. |
+| `liquidity_freeze` | **Liquidity Freeze** | Agent tokens **`-10%`**, Pre-IPO **`-5%`**, Public equities **`-2%`**, plus any position exceeding **`5%` of pool liquidity** suffers an additional **`-25%` exit haircut**. |
+| `weekend_gap` | **Weekend Gap** | Public tokenized equities (`public_equity`) gap **`-7%`** lower against the Monday regular-session open while traditional venues are closed. |
+
+---
+
+## Deterministic Pre-Trade Risk Engine (`@sisera/risk`)
+
+Both paper and live orders execute through the exact same side-effect-free pre-trade risk function:
+
+1. **Server-Loaded Mandate Limits:** Risk preferences (`GET /v1/risk/preferences` and `PUT /v1/risk/preferences`) and portfolio state are loaded strictly server-side from PostgreSQL.
+2. **Quote Quality & Freshness Gate:** Every quote carries `source`, `observedAt`, `receivedAt`, and `quality` state. Stale, delayed, or degraded quotes are rejected before order creation.
+3. **Machine-Readable Dispositions:** Every risk evaluation returns a deterministic pass/fail decision accompanied by structured rejection codes (e.g., position weight breach, underlying duplicate exposure breach, pool liquidity breach, daily drawdown breach, or stale reference feed).
+
+---
+
+## Identity, RBAC & Non-Custodial Signing
+
+<AccordionGroup>
+  <Accordion title="Privy Authentication & Organization RBAC" icon="key">
+    - Browser sessions authenticate via **Privy** bearer tokens stored in `HttpOnly`, `SameSite` cookies.
+    - `apps/api` cryptographically verifies the Privy token server-side and resolves organization membership and role permissions (`market:read`, `agent:read`, `trade:execute`, `risk:manage`).
+    - **Wallet ownership alone is never sufficient authorization to trade**—an identity defaults to viewer-only until explicit permissions are granted.
+  </Accordion>
+
+  <Accordion title="Byte-Verified Non-Custodial Signing" icon="signature">
+    - Sisera never stores or accesses user private keys.
+    - When preparing a Solana swap (`POST /v1/solana/orders/prepare`), marketplace license purchase (`POST /v1/marketplace/:id/checkout`), or Meteora DBC launch (`POST /v1/launches/dbc/prepare`), the server records the exact expected unsigned transaction message.
+    - Upon submission (`verifySignedSwap`), `apps/api` deserializes the user-signed transaction and verifies that the program instructions, accounts, and amounts match what Sisera prepared **byte-for-byte** before broadcasting to the Solana RPC.
+  </Accordion>
+
+  <Accordion title="Optional Delegated Session Signers (Automated Execution)" icon="bolt">
+    - For operators who want `policy_auto` or `autonomous` agents to execute live onchain swaps without manual wallet popups on every trigger, Sisera supports **Privy Delegated Session Signers**.
+    - Requires both `SISERA_DELEGATED_SIGNING_ENABLED=true` and `PRIVY_AUTHORIZATION_PRIVATE_KEY` on the server, plus explicit wallet delegation by the owner.
+    - Even with delegated signing enabled, every automated transaction must still pass the deterministic policy evaluator and pre-trade risk engine.
+  </Accordion>
+</AccordionGroup>

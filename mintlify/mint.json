@@ -1,0 +1,114 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Sisera",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#B67C43",
+    "light": "#E9BD8C",
+    "dark": "#78B9AD",
+    "background": {
+      "dark": "#0C141B",
+      "light": "#F8F7F4"
+    },
+    "anchors": {
+      "from": "#E9BD8C",
+      "to": "#78B9AD"
+    }
+  },
+  "modeToggle": {
+    "default": "dark"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/hackcat29/Sisera"
+    },
+    {
+      "name": "DEXScreener",
+      "url": "https://dexscreener.com/solana/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Launch Terminal",
+    "url": "https://sisera.xyz"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Live Terminal",
+      "icon": "terminal",
+      "url": "https://sisera.xyz"
+    },
+    {
+      "name": "GitHub Repository",
+      "icon": "github",
+      "url": "https://github.com/hackcat29/Sisera"
+    },
+    {
+      "name": "Follow @sisera_ai",
+      "icon": "x-twitter",
+      "url": "https://x.com/sisera_ai"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": ["introduction", "quickstart", "architecture"]
+    },
+    {
+      "group": "Markets & Execution",
+      "pages": [
+        "markets/tokenized-equities",
+        "markets/prestocks-private-markets",
+        "markets/multi-venue-execution"
+      ]
+    },
+    {
+      "group": "Intelligence & AI Policies",
+      "pages": [
+        "intelligence/corroborated-events",
+        "intelligence/sisera-ai-copilot",
+        "intelligence/deterministic-policies"
+      ]
+    },
+    {
+      "group": "Autonomous Agents & Marketplace",
+      "pages": [
+        "agents/overview-and-manifests",
+        "agents/promotion-pipeline",
+        "agents/vaults-and-marketplace"
+      ]
+    },
+    {
+      "group": "Token & Curve Launches",
+      "pages": ["launches/clawpump-agent-tokens", "launches/meteora-dbc"]
+    },
+    {
+      "group": "Portfolio, Risk & Security",
+      "pages": ["portfolio-and-risk/unified-portfolio", "portfolio-and-risk/risk-and-security"]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/overview",
+        "api-reference/markets-and-intelligence",
+        "api-reference/policies-and-portfolio",
+        "api-reference/agents-launches-marketplace"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/sisera_ai",
+    "github": "https://github.com/hackcat29/Sisera",
+    "website": "https://sisera.xyz"
+  }
+}

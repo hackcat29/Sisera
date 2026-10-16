@@ -1,0 +1,60 @@
+---
+title: "Sisera AI Copilot, Takes & Macro Intelligence"
+sidebarTitle: "Sisera AI Copilot"
+description: "Conversational market analysis, structured stock assessments, forkable Takes, macro regimes, and live social feeds."
+icon: "sparkles"
+---
+
+**Sisera AI** (`/copilot` and `POST /v1/copilot/chat`) connects live market data, Pyth Core reference prices, PreStocks private marks, the corroborated event engine, your unified portfolio, and the deterministic policy compiler into a single conversational workspace.
+
+---
+
+## From Question to Executable Thesis
+
+Unlike generic chatbots, Sisera AI classifies operator intent across live system state and transitions naturally from open-ended research to risk-checked execution:
+
+<Steps>
+  <Step title="1. Diagnose Fair-Value & Event Drivers">
+    > *"Why is OpenAI trading 8% above its issuer mark?"*  
+    > *"What changed in NVDAx in the last hour?"*  
+    > *"Which Clawpump agents are outperforming their paired stock?"*
+  </Step>
+  <Step title="2. Stress-Test Bull & Bear Cases">
+    > *"Show me the strongest argument for and against buying OpenAI at current levels."*  
+    Calls `POST /v1/stocks/:symbol/assessment` to produce a schema-validated bull case, bear case, valuation context, and catalyst checklist grounded strictly in observed filings and news.
+  </Step>
+  <Step title="3. Simulate Portfolio Impact">
+    > *"What happens to my concentration and stress scenarios if I allocate $5,000?"*  
+    Evaluates `POST /v1/portfolio/impact` against your current holdings, sector weights, duplicate underlying exposure, and pool exit liquidity.
+  </Step>
+  <Step title="4. Compile into a Deterministic Policy or Take">
+    > *"Buy $2,000 if the premium falls below 3%, liquidity remains above $50,000, and no high-severity negative event appears."*  
+    Compiles directly into a deterministic `TradingPolicy` AST ready for operator review and arming.
+  </Step>
+</Steps>
+
+---
+
+## Executable "Takes" (`/v1/takes`)
+
+Sisera introduces **Takes**—structured, verifiable market theses that pair a research narrative with live, machine-evaluated entry/invalidation conditions:
+
+- **Compile a Take (`POST /v1/takes/compile`):** Turn a market thesis into an auditable Take bound to a specific asset, target price/premium, and condition set.
+- **Fork a Take (`POST /v1/takes/fork`):** Clone another operator's Take into your own workspace and customize its allocation cap, slippage budget, or trigger thresholds.
+- **Arm a Take (`POST /v1/takes/arm`):** Convert a Take into an active, 30-second evaluated policy guarded by your account's risk mandate.
+- **Tokenize a Take (`POST /v1/takes/tokenize`):** Graduate a high-conviction Take into an autonomous agent or launchable market structure.
+
+---
+
+## Macro Regimes & Live Social Feeds
+
+Alongside company-specific filings, Sisera contextualizes every trade within broader macro and social flows:
+
+<CardGroup cols={2}>
+  <Card title="Macro & Chain Regimes (/macro)" icon="globe">
+    Tracks interest rate regimes, inflation series (FRED), macro event calendars (`GET /v1/intelligence/macro`), and live cross-chain TVL snapshots (`GET /v1/chains` via DeFiLlama) to classify overall market risk appetite (`GET /v1/macro-regime`).
+  </Card>
+  <Card title="Real-Time Social Feeds (/social)" icon="rss">
+    Aggregates live market chatter from X, Telegram, Reddit, and Discord (`GET /v1/social-feed`), mapping posts onto Catalog assets while explicitly isolating social sentiment from confirmed SEC filings.
+  </Card>
+</CardGroup>

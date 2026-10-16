@@ -1,0 +1,67 @@
+---
+title: "PreStocks Private Markets (Pre-IPO)"
+sidebarTitle: "PreStocks Private Markets"
+description: "Permissionless pre-IPO exposure to OpenAI, Anthropic, SpaceX, Neuralink, Kalshi, Anduril, Figure AI, and Polymarket on Solana."
+icon: "building-columns"
+---
+
+**PreStocks** is Sisera's dedicated pre-IPO private markets layer (`GET /v1/private-markets` and `/private-markets` in the terminal). It brings high-growth private companies into the exact same intelligence, portfolio, and execution workflow as public equities.
+
+---
+
+## Supported Pre-IPO Universe
+
+Every supported PreStocks asset on Solana sits alongside public equities in the catalog with its verified SPL mint, live token price, issuer valuation mark, and implied valuation:
+
+<CardGroup cols={2}>
+  <Card title="Frontier AI & Compute" icon="microchip-ai">
+    **OpenAI**, **Anthropic**, **Figure AI**, and leading private AI infrastructure companies tracked against their latest primary funding rounds and secondary tender marks.
+  </Card>
+  <Card title="Aerospace, Defense & DeepTech" icon="shuttle-space">
+    **SpaceX**, **Anduril**, and **Neuralink** with real-time defense contract intelligence, regulatory event tracking, and valuation comparison.
+  </Card>
+  <Card title="Financial & Prediction Infrastructure" icon="scale-balanced">
+    **Kalshi** and **Polymarket** tracked alongside macro regulatory developments, volume milestones, and private-market funding events.
+  </Card>
+  <Card title="Unified Portfolio Integration" icon="briefcase">
+    PreStocks positions flow directly into Sisera's unified ledger, stress-test scenarios (`Private Mark -20% Reset`), and duplicate economic exposure checks.
+  </Card>
+</CardGroup>
+
+---
+
+## Valuation Context: Implied vs. Issuer Mark
+
+Unlike public equities with continuous exchange ticks, private companies are benchmarked against their **Issuer Mark** (the latest verified funding round or secondary tender valuation). Sisera derives and tracks:
+
+- **Live Token Price:** Current Solana market price for the PreStocks token.
+- **Issuer Mark Price & Valuation:** The reference share price and total enterprise valuation from the company's latest verified private mark.
+- **Implied Valuation:** The market capitalization implied by the live Solana token price relative to the issuer mark.
+- **Gap to Mark (`Premium / Discount %`):**
+  $$\text{Gap to Mark (\%)} = \frac{\text{Implied Valuation} - \text{Issuer Mark Valuation}}{\text{Issuer Mark Valuation}} \times 100$$
+
+---
+
+## Multi-Factor Private Market Rankings
+
+Through `GET /v1/rankings/private`, operators can rank and filter all PreStocks markets across seven institutional dimensions:
+
+| Ranking Mode | Description |
+| --- | --- |
+| `gap_to_mark` | Ranks private markets by absolute dislocation from their verified issuer valuation mark. |
+| `deepest_discount` | Surfaces pre-IPO tokens trading at the largest discount relative to their latest private round. |
+| `highest_premium` | Surfaces pre-IPO tokens commanding the highest secondary market premium. |
+| `liquidity` | Ranks by executable onchain pool liquidity and lowest price impact. |
+| `momentum` | Ranks by multi-timeframe price and volume acceleration. |
+| `news_intensity` | Ranks by the volume and severity of corroborated fundraising, M&A, executive, or regulatory events. |
+| `portfolio_fit` | Scores each PreStocks market against your **current portfolio**, penalizing sector over-concentration and rewarding diversification. |
+
+---
+
+## Executing & Automating PreStocks
+
+You can trade any PreStocks market directly from the ranking table or detail view:
+
+1. **Direct Swap Execution:** Route paper or live Solana orders via Jupiter (`POST /v1/solana/orders/prepare` and `POST /v1/solana/orders/:id/execute`) with pre-trade risk verification.
+2. **Conditional Policy Automation:** Ask Sisera AI to compile a valuation-gated policy, for example:
+   > *"Buy $2,000 of OpenAI if the premium to mark falls below 3%, pool liquidity stays above $50,000, and no high-severity negative regulatory event is active."*

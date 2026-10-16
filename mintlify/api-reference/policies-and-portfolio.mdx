@@ -1,0 +1,54 @@
+---
+title: "Copilot, Policies, Portfolio & Risk Endpoints"
+sidebarTitle: "Policies & Portfolio"
+description: "REST endpoints for Sisera AI Copilot, Deterministic Policies, Takes, Unified Portfolio, Stress Scenarios, and Risk Mandates."
+icon: "shield-check"
+---
+
+## Sisera AI Copilot & Deterministic Policies
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `POST` | `/v1/copilot/chat` | `market:read` | Conversational intelligence endpoint returning grounded answers, event citations, portfolio context, and candidate policy drafts. |
+| `POST` | `/v1/policies/compile` | `market:read` | Compiles a natural-language trading instruction into a validated, deterministic `Policy` AST with live condition statuses and portfolio impact. |
+| `POST` | `/v1/policies` | `trade:execute` | Creates and arms a deterministic trading policy (evaluated every 30 seconds by the scheduler). |
+| `GET` | `/v1/policies` | `market:read` | Lists all draft, armed, triggered, paused, and expired policies for the account. |
+| `POST` | `/v1/policies/:id/pause` | `trade:execute` | Pauses an armed policy. |
+| `POST` | `/v1/policies/:id/resume` | `trade:execute` | Resumes a paused policy. |
+| `POST` | `/v1/policies/:id/cancel` | `trade:execute` | Permanently cancels a policy. |
+| `POST` | `/v1/policies/:id/approve` | `trade:execute` | Approves a policy trigger that has met all deterministic conditions and awaits operator confirmation. |
+| `POST` | `/v1/policies/:id/execute` | `trade:execute` | Submits the user-signed transaction for an approved policy execution. |
+
+---
+
+## Executable "Takes" (`/v1/takes`)
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/takes` | `market:read` | Lists published market Takes with live condition evaluation status. |
+| `GET` | `/v1/takes/:id` | `market:read` | Returns detailed thesis, conditions, and fork lineage for a Take. |
+| `POST` | `/v1/takes/compile` | `market:read` | Compiles a structured Take from a research prompt and target conditions. |
+| `POST` | `/v1/takes/fork` | `trade:execute` | Forks an existing Take into the operator's account with custom parameters. |
+| `POST` | `/v1/takes/arm` | `trade:execute` | Arms a Take as a live, risk-checked 30-second policy. |
+| `POST` | `/v1/takes/tokenize` | `trade:execute` | Prepares a Take to be deployed as an autonomous agent strategy. |
+
+---
+
+## Unified Portfolio, Stress Testing & Risk Mandate
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/portfolio` | `market:read` | Returns the reconstructed average-cost position book, NAV, cash, exposure breakdowns (`byAssetClass`, `bySector`, `byUnderlying`, `byBook`, `byVenue`), `duplicateExposures`, Herfindahl concentration, 5 stress scenarios, and live wallet reconciliation breaks. |
+| `POST` | `/v1/portfolio/impact` | `market:read` | Simulates a proposed trade (`simulateTrade`) against the current book and returns before/after weights, duplicate exposure warnings, pool liquidity usage %, and whether the mandate blocks the order. |
+| `GET` | `/v1/risk/preferences` | `market:read` | Returns the account's active risk mandate limits (`maxPositionWeightPct`, `maxUnderlyingWeightPct`, `maxLiquidityUsagePct`, `maxDailyDrawdownPct`, `minCashUsd`). |
+| `PUT` | `/v1/risk/preferences` | `risk:manage` | Updates the account's server-enforced risk mandate preferences. |
+
+---
+
+## Activity Audit Trail & Alerts
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/activity/events` | `market:read` | Returns the append-only audit timeline of orders, policy evaluations, agent ticks, promotions, and launches. |
+| `GET` | `/v1/alerts` | `market:read` | Returns active order, risk, circuit-breaker, and cross-chain bridge alerts. |
+| `POST` | `/v1/alerts/:id/acknowledge` | `market:read` | Marks an alert as acknowledged by the operator. |

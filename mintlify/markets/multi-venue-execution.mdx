@@ -1,0 +1,70 @@
+---
+title: "Multi-Venue Execution & Cross-Chain Bridging"
+sidebarTitle: "Multi-Venue Execution"
+description: "Trade across Solana DEXs, Binance Spot, Hyperliquid Perpetuals, Jupiter Prediction Markets, and bridge into HyperEVM/HyperCore."
+icon: "arrow-right-arrow-left"
+---
+
+While Sisera centers on Solana tokenized equities (`xstocks-solana`), private markets (`prestocks-solana`), and agent tokens (`clawpump-solana`), the terminal provides unified market data, risk controls, and order routing across **Spot**, **Perpetuals**, **Prediction Markets**, and **Cross-Chain Bridges**.
+
+<Note>
+  **Strict Venue Separation:** Sisera never substitutes quotes from one venue to price an order on another. Every venue adapter attaches explicit `venue`, `observedAt`, and `quality` metadata.
+</Note>
+
+---
+
+## Supported Execution Venues
+
+<Tabs>
+  <Tab title="Solana (Jupiter & Native)">
+    ### Solana Equities, PreStocks & Agent Tokens
+    All Solana spot swaps route through **Jupiter v2** (`GET /v1/solana/quote`, `POST /v1/solana/orders/prepare`, `POST /v1/solana/orders/:id/execute`).
+
+    - **Venue Classifications:**
+      - `xstocks-solana`: Public tokenized equities
+      - `prestocks-solana`: Pre-IPO private company tokens
+      - `clawpump-solana`: AI agent tokens launched via Clawpump or Meteora DBC
+    - **Two-Phase Non-Custodial Execution:**
+      1. `POST /v1/solana/orders/prepare`: Runs pre-trade risk checks, fetches an executable route, and records the expected unsigned transaction digest.
+      2. **Wallet Signing:** The user signs in their Solana wallet (or via a delegated Privy session signer).
+      3. `POST /v1/solana/orders/:id/execute`: Verifies that the signed bytes match the prepared transaction before broadcasting to Solana RPC and recording the fill in the ledger.
+  </Tab>
+
+  <Tab title="Hyperliquid Perpetuals">
+    ### Hyperliquid Perpetual Futures (`/terminal?venue=hyperliquid`)
+    Sisera connects directly to Hyperliquid's `info` endpoint (`metaAndAssetCtxs`, `l2Book`, `candleSnapshot`, and `clearinghouseState`):
+
+    - **Mark vs. Last Trade:** Displays authoritative `markPx` alongside top-of-book bid/ask depth, 24h quote notional volume (`dayNtlVlm`), open interest, and hourly funding rates.
+    - **Observed Perp Wallets:** Supply any EVM address (`GET /v1/public-wallet/:address`) to inspect live margin, open positions, and closed P&L in read-only mode.
+  </Tab>
+
+  <Tab title="Binance Spot">
+    ### Binance Spot (`/markets?venue=binance`)
+    Provides full spot order book depth (`/api/v3/depth`), verified OHLCV klines (`/api/v3/klines`), 24h ticker statistics, and paper/live order routing (`POST /v1/market-orders/paper` and `POST /v1/market-orders/binance/live`).
+
+    - Governed by the `SISERA_LIVE_BINANCE_ENABLED` server feature flag.
+    - Every order passes through the same pre-trade risk engine and mandate utilization checks as Solana swaps.
+  </Tab>
+
+  <Tab title="Prediction Markets">
+    ### Event & Prediction Markets (`/predictions`)
+    Integrates **Jupiter Prediction Markets** and **Polymarket Gamma** event feeds (`GET /v1/prediction-markets`, `GET /v1/prediction-markets/:id`):
+
+    - **AI Event Research:** Call `GET /v1/prediction-markets/:id/research` for source-corroborated probability analysis and resolution criteria breakdown.
+    - **Paper & Live Execution:** Place paper prediction orders (`POST /v1/prediction-orders/paper`) or prepare and execute live onchain prediction contracts (`POST /v1/prediction-orders/prepare` and `POST /v1/prediction-orders/:id/execute`).
+  </Tab>
+</Tabs>
+
+---
+
+## Cross-Chain Bridging (HyperEVM / HyperCore)
+
+Traders managing capital across Solana and Hyperliquid can quote, submit, and monitor cross-chain bridge transfers directly inside Sisera:
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/v1/wallets/hyperevm/:address` | `GET` | Inspects balances and state for a linked HyperEVM wallet. |
+| `/v1/bridge/quote` | `POST` | Computes an executable cross-chain bridge quote with fee breakdown and estimated settlement time. |
+| `/v1/bridge/submission` | `POST` | Records a signed bridge transaction and initiates settlement tracking. |
+| `/v1/bridge/status` | `GET` | Polls live confirmation and finality status of an active bridge transfer. |
+| `/v1/bridge/transfers` | `GET` | Lists historical bridge transfers and generates alerts on completion or delay. |

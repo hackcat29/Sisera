@@ -1,0 +1,55 @@
+---
+title: "Unified Portfolio, Exposure Deduplication & Reconciliation"
+sidebarTitle: "Unified Portfolio"
+description: "Single immutable fill ledger, average-cost accounting, underlying economic exposure deduplication, and onchain wallet reconciliation."
+icon: "briefcase"
+---
+
+Every trade in Sisera—whether manual, policy-driven, or autonomous agent-driven, in paper or live mode—flows into one **immutable fill ledger** (`@sisera/portfolio` and `GET /v1/portfolio`).
+
+---
+
+## Average-Cost Position Book (`buildPositions`)
+
+Positions are reconstructed deterministically from ordered fills (`mode|book|instrumentKey`):
+
+- **Asset Classes (`AssetClassKey`):** `public_equity`, `pre_ipo`, `agent_token`, `crypto_spot`, `perpetual`, `prediction`, and `cash`.
+- **Average-Cost Accounting:** Increasing a position updates the weighted average cost (`averageCostUsd`). Reducing, closing, or flipping a position books realized P&L (`realizedPnlUsd`) net of fees (`feesUsd`); if a fill flips a position from long to short (or vice versa), the remainder opens a fresh position at the fill price.
+- **Unpriced Position Isolation:** If a live mark is unavailable, the position is explicitly marked `unpriced` and excluded from synthetic NAV fabrication.
+
+---
+
+## Underlying Economic Exposure & Duplicate Detection
+
+In tokenized markets, a trader can unintentionally double their exposure to a single company across multiple wrappers—for example, holding **`AAPLx`** (public tokenized stock) while simultaneously holding a **Clawpump agent token paired to `AAPL`**.
+
+Sisera maps every Catalog asset to its **underlying economic identifier** (`underlying`) and computes:
+
+1. **Exposure Breakdowns:** Grouped by `byAssetClass`, `bySector`, `byUnderlying`, `byBook` (human vs. each individual agent book), and `byVenue`.
+2. **Duplicate Exposure Alerts (`duplicateExposures`):** Automatically flags any underlying economic entity held across two or more distinct instruments and reports their combined portfolio weight (`combinedWeightPct`).
+3. **Herfindahl-Hirschman Concentration (`concentration`):**
+   - `largestWeightPct` & `largestSymbol`
+   - `top3WeightPct`
+   - `herfindahl` index ($\sum w_i^2$) and `effectivePositions` ($1 / \text{HHI}$)
+4. **Exit Liquidity Share (`liquidityRisk`):** Measures each position's market value as a percentage of available onchain pool liquidity (`exitLiquidityPct`) to surface illiquid positions before you attempt to exit.
+
+---
+
+## Pre-Trade Portfolio Impact Simulation (`simulateTrade`)
+
+Before any manual order, armed policy, or agent proposal executes, `POST /v1/portfolio/impact` projects the cash-funded trade onto the current book and enforces mandate thresholds (`DEFAULT_IMPACT_LIMITS`):
+
+| Impact Limit | Default Threshold | Enforcement Behavior |
+| --- | --- | --- |
+| `maxPositionWeightPct` | `25%` of NAV | Blocks orders that push a single instrument above `25%` portfolio weight. |
+| `maxUnderlyingWeightPct` | `35%` of NAV | Blocks orders where combined duplicate exposure to one underlying exceeds `35%`. |
+| `maxLiquidityUsagePct` | `2%` of Pool Depth | Blocks orders whose notional exceeds `2%` of available pool liquidity. |
+| `minCashUsd` | `$0.00` | Blocks cash-funded purchases that would draw cash below the mandate floor. |
+
+---
+
+## Live Onchain Wallet Reconciliation (`reconcileBalances`)
+
+Sisera continuously reconciles the internal fill ledger against live onchain Solana wallet balances (`Helius getBalance` / `getAssetsByOwner`) and observed Hyperliquid clearinghouse states:
+
+- Any discrepancy exceeding `0.00000001` units between the ledger balance and the onchain wallet balance is surfaced as an explicit **reconciliation break** (`{ asset, venue, ledger, difference }`) in the Portfolio and Activity views.

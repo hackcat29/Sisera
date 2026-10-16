@@ -1,0 +1,64 @@
+---
+title: "Strategy Marketplace, Agent Vaults & Wallet Leaderboard"
+sidebarTitle: "Vaults, Marketplace & Leaderboard"
+description: "Monetize proven strategy manifests with USDC licenses, manage agent vaults, and track realized live performance across Solana and EVM wallets."
+icon: "trophy"
+---
+
+Sisera includes built-in capital and distribution infrastructure for quantitative builders and traders: the **Strategy Marketplace** (`/marketplace`), **Agent Vaults**, and the **Live Wallet Leaderboard** (`/leaderboard`).
+
+---
+
+## Strategy Marketplace (`/v1/marketplace`)
+
+Creators can publish a pinned, immutable version of an owned agent strategy (`POST /v1/marketplace`) with executable rules, category tags, backtest metrics, and a one-time license price between **0 and 10,000 USDC**.
+
+<Steps>
+  <Step title="1. Pin an Immutable Manifest Version">
+    Each marketplace listing locks to a single cryptographic manifest version and a verified Solana payout wallet owned by the creator. Subsequent edits to the creator's agent never mutate an active listing.
+  </Step>
+  <Step title="2. Non-Custodial Mainnet USDC Checkout">
+    When a buyer initiates checkout (`POST /v1/marketplace/:id/checkout`), Sisera prepares a direct mainnet Solana USDC transfer to the creator's wallet with a unique checkout memo—including automatic Associated Token Account (ATA) creation if needed.
+  </Step>
+  <Step title="3. Transaction Verification & License Settlement">
+    The buyer signs in their wallet and submits via `POST /v1/marketplace/checkouts/:id/settle`. The server verifies that the signed transaction matches the prepared instruction byte-for-byte before finalizing and issuing the license. Creators receive **100% of the license price**.
+  </Step>
+  <Step title="4. Import into Buyer's Research Pipeline">
+    Calling `POST /v1/marketplace/:id/import` imports the strategy's entry/exit rules and risk guardrails as a new `draft` / `research` agent owned by the buyer. All 7 promotion stages still apply before live deployment.
+  </Step>
+</Steps>
+
+---
+
+## Agent Vaults (`/v1/agents/:id/vault`)
+
+Each autonomous agent tracks an isolated capital vault (`GET /v1/agents/:id/vault`, `POST /v1/agents/:id/vault/deposit`) and ranks on the **Agent Vaults Leaderboard** (`GET /v1/agent-vaults/leaderboard`):
+
+- **Isolated Book Attribution:** Tracks allocated capital, depositor shares, high-water mark, realized/unrealized P&L, and drawdown independently from the operator's manual trading book.
+- **Mandate Enforcement:** Deposits and withdrawals respect the agent manifest's `max_capital_usd` ceiling and active lifecycle stage.
+
+---
+
+## Tracked-Wallet Leaderboard (`/v1/leaderboard`)
+
+The Leaderboard ranks **realized live performance** across `24h`, `7d`, and `30d` windows (`GET /v1/leaderboard?window=7d`). Paper trades are strictly excluded.
+
+<Tabs>
+  <Tab title="Solana Wallet Accounting (FIFO)">
+    - **Data Source:** Merged Sisera live fill ledger + **Helius Enhanced Transaction History** (up to 500 recent transactions per wallet), deduplicated by transaction signature.
+    - **FIFO Cost Basis:** USDC-quoted swaps establish First-In, First-Out (FIFO) cost basis. Purchases prior to the ranking window can establish cost basis for sales inside the window.
+    - **Strict Integrity Rules:**
+      - Transfers and non-USDC swaps invalidate affected token basis rather than fabricating artificial profit.
+      - Unknown cost basis, network fees, and unrealized gains are excluded.
+      - **Coverage Score:** Displays the exact percentage of observed sells with fully matched FIFO basis, explicitly labeled `partial`.
+  </Tab>
+
+  <Tab title="EVM / Hyperliquid Accounting">
+    - **Data Source:** Hyperliquid `userFills` endpoint (up to 2,000 recent perpetual fills per wallet).
+    - **Closed P&L:** Aggregates verified closed P&L across both long and short perpetual closing trades, explicitly labeled `reported/partial`.
+  </Tab>
+</Tabs>
+
+<Info>
+  **Permissionless Wallet Discovery:** Any authenticated operator can register an external Solana or EVM address onto the leaderboard via `POST /v1/leaderboard/wallets`. The background scheduler refreshes up to 20 stale wallets every 30 seconds, and wallets with missing provider data remain visible without an invented rank.
+</Info>

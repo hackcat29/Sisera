@@ -1,0 +1,101 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Sisera",
+  "colors": {
+    "primary": "#B67C43",
+    "light": "#E9BD8C",
+    "dark": "#78B9AD"
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/hackcat29/Sisera"
+      },
+      {
+        "label": "DEXScreener",
+        "href": "https://dexscreener.com/solana/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Launch Terminal",
+      "href": "https://sisera.xyz"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["introduction", "quickstart", "architecture"]
+          },
+          {
+            "group": "Markets & Execution",
+            "pages": [
+              "markets/tokenized-equities",
+              "markets/prestocks-private-markets",
+              "markets/multi-venue-execution"
+            ]
+          },
+          {
+            "group": "Intelligence & AI Policies",
+            "pages": [
+              "intelligence/corroborated-events",
+              "intelligence/sisera-ai-copilot",
+              "intelligence/deterministic-policies"
+            ]
+          },
+          {
+            "group": "Autonomous Agents & Marketplace",
+            "pages": [
+              "agents/overview-and-manifests",
+              "agents/promotion-pipeline",
+              "agents/vaults-and-marketplace"
+            ]
+          },
+          {
+            "group": "Token & Curve Launches",
+            "pages": ["launches/clawpump-agent-tokens", "launches/meteora-dbc"]
+          },
+          {
+            "group": "Portfolio, Risk & Security",
+            "pages": [
+              "portfolio-and-risk/unified-portfolio",
+              "portfolio-and-risk/risk-and-security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api-reference/overview",
+              "api-reference/markets-and-intelligence",
+              "api-reference/policies-and-portfolio",
+              "api-reference/agents-launches-marketplace"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/sisera_ai",
+      "github": "https://github.com/hackcat29/Sisera",
+      "website": "https://sisera.xyz"
+    }
+  }
+}

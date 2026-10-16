@@ -1,0 +1,70 @@
+---
+title: "API Reference Overview"
+sidebarTitle: "Overview & Auth"
+description: "Authentication, RBAC permissions, response envelopes, idempotency guarantees, and health checks for the Sisera Control Plane API."
+icon: "terminal"
+---
+
+The Sisera Control Plane (`@sisera/api`) exposes a RESTful JSON API prefixed under `/v1/*`.
+
+- **Production Base URL:** `https://sisera.xyz/api/platform` (proxied via Next.js) or direct API gateway port (`:4000` in local dev, `:4200` in production).
+- **Content-Type:** `application/json; charset=utf-8`
+- **Monetary Precision:** All monetary quantities, prices, and P&L values across domain boundaries are serialized as **explicit decimal strings** (or validated finite numbers in input schemas) to prevent IEEE-754 floating-point drift.
+
+---
+
+## Authentication & RBAC Permissions
+
+Write endpoints and account-specific read endpoints require an authenticated **Privy Bearer Token** passed either via the `Authorization` header or an `HttpOnly` session cookie:
+
+```http
+Authorization: Bearer <privy_access_token>
+```
+
+### Role-Based Permission Scopes
+
+| Permission Scope | Granted Capabilities |
+| --- | --- |
+| `market:read` | Read public catalog, xStocks, PreStocks, Pyth references, intelligence events, rankings, marketplace listings, and leaderboard. |
+| `agent:read` | Inspect agent manifests, readiness, backtests, marketplace checkouts, and vaults. |
+| `trade:execute` | Prepare and execute paper or live orders, arm policies, and submit signed Solana swaps. |
+| `risk:manage` | Modify account risk preferences, approve `limited_live`/`live` agent promotions, and trigger emergency halts. |
+
+<Note>
+  **Wallet Ownership Verification (`requireOwnedWallet`):** Endpoints that bind a Solana or EVM address to an action (such as publishing a marketplace strategy, checking out a license, or launching a token) verify server-side that the authenticated Privy principal actually owns the submitted wallet address.
+</Note>
+
+---
+
+## Standard Response & Error Envelopes
+
+Successful responses return a top-level `{ "data": ... }` object:
+
+```json
+{
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+Errors return a consistent machine-readable `{ "error": "...", "message": "..." }` payload:
+
+| HTTP Status | Error Code | Description |
+| --- | --- | --- |
+| `400` | `invalid_request` / `validation_error` | Request body or query parameters failed strict Zod schema validation. |
+| `401` / `403` | `account_required` / `forbidden` | Missing Privy bearer token, insufficient RBAC permission, or unverified wallet ownership. |
+| `409` | `conflict` / `gate_failed` | Idempotency conflict, duplicate checkout signature, or unmet 7-stage promotion requirement. |
+| `429` | `rate_limit_exceeded` | Endpoint rate limit exceeded (e.g., `8 req/min` on checkout, `10 req/min` on wallet registration). |
+| `503` | `persistence_unavailable` / `provider_unavailable` | Account database or upstream market provider is unreachable (fails closed). |
+
+---
+
+## System Health & Capabilities Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/health/live` | Liveness probe returning `{ "status": "ok" }`. |
+| `GET` | `/health/ready` | Readiness probe checking PostgreSQL connectivity and core service initialization. |
+| `GET` | `/v1/capabilities` | Returns active server-side feature flags (`liveSolana`, `liveBinance`, `livePredictions`, `liveLaunches`, `liveAgents`, `delegatedSigning`). |
+| `GET` | `/metrics` | Prometheus-formatted operational and latency telemetry. |

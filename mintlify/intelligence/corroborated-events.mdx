@@ -1,0 +1,89 @@
+---
+title: "Corroborated Event Intelligence & SEC EDGAR"
+sidebarTitle: "Corroborated Intelligence"
+description: "Rule-based source tiering, SEC EDGAR filing ingestion, event clustering, and explainable asset move attribution."
+icon: "newspaper"
+---
+
+Sisera's intelligence layer (`@sisera/intelligence`) continuously monitors the primary sources most likely to move public tokenized equities, PreStocks private companies, and autonomous agent tokens.
+
+Every classification is **deterministic, rule-based, and explainable**: a source tier comes from verified publisher provenance, an event category from domain rules and filing item codes, and certainty from independent source corroboration. **A rumor is never promoted to the certainty of an official regulatory filing.**
+
+---
+
+## Ingestion Sources
+
+- **SEC EDGAR Regulatory Filings:** Direct ingestion of `8-K` (including specific item code mapping), `10-Q`, `10-K`, `S-1`, `13D`, `13G`, and `Form 4` filings.
+- **Global & Financial News Wires:** GDELT, Marketaux, Finnhub, GNews, Google News, and Bing News streams.
+- **Macroeconomic Releases:** FRED economic series, central bank rate decisions, inflation prints, and DeFiLlama chain TVL snapshots.
+- **Social & Community Chatter:** Real-time feeds across X, Telegram, Reddit, and Discord.
+
+---
+
+## Source Tiers & Certainty Ladder
+
+Every ingested item (`RawItem`) is classified into one of eight strict `SourceTier` levels and clustered into a `MarketEvent` with an explicit `Certainty` rating:
+
+<Tabs>
+  <Tab title="Source Tiers (SourceTier)">
+    | Tier Identifier | Provenance Examples | Weight in Corroboration |
+    | --- | --- | --- |
+    | `regulatory_filing` | SEC EDGAR (`sec.gov`), federal register, court dockets | **Authoritative** — Immediately marks an event as `confirmed`. |
+    | `official` | Direct company investor relations, verified issuer press releases | **Authoritative** — Immediately marks an event as `confirmed`. |
+    | `wire` | Reuters, Bloomberg, Associated Press, PR Newswire, Business Wire | **High** — Corroborates across independent established publishers. |
+    | `tier1_press` | WSJ, Financial Times, CNBC, NYT, The Information | **High** — Counts toward multi-publisher `corroborated` status. |
+    | `press` | Sector trade publications, established financial/crypto journalism | **Medium** — Requires independent confirmation to upgrade from `single_source`. |
+    | `aggregator` | News syndicators and secondary market summaries | **Low** — Tracked for breadth; does not independently corroborate. |
+    | `social` | X, Telegram, Reddit, Discord posts | **Informational** — Flagged as `unverified_social` or `rumor`. |
+    | `unknown` | Uncategorized external domains | **Baseline** — Never triggers confirmed policy conditions. |
+  </Tab>
+
+  <Tab title="Certainty States (Certainty)">
+    | Certainty State | Qualification Criteria |
+    | --- | --- |
+    | `confirmed` | Backed by at least one `regulatory_filing` (e.g., SEC `8-K`) or `official` issuer announcement. |
+    | `corroborated` | Reported independently by multiple established publishers (`wire` or `tier1_press`) without rumor hedging language. |
+    | `single_source` | Reported by a single credible press source without independent confirmation yet. |
+    | `rumor` | Contains explicit hedging/speculative phrasing (*"sources say"*, *"reportedly exploring"*, *"unconfirmed"*). |
+    | `unverified_social` | Originating solely from social channels (`social` tier) without press or filing backing. |
+  </Tab>
+</Tabs>
+
+---
+
+## 18 Event Categories & Severity Scoring
+
+Each item and clustered event is tagged with one or more `EventCategory` classifications, a `Severity` (`low`, `medium`, `high`, `critical`), and a `Sentiment` (`positive`, `negative`, `neutral`, `mixed`):
+
+```typescript
+export type EventCategory =
+  | "earnings"          // Quarterly results, EPS/revenue beats & misses
+  | "guidance"          // Forward outlook raises, cuts, or withdrawals
+  | "product"           // Model launches, hardware releases, FDA/clinical milestones
+  | "fundraising"       // Pre-IPO primary rounds, tender offers, valuation marks
+  | "m_and_a"           // Acquisitions, mergers, divestitures, buyout offers
+  | "executive"         // CEO/CFO/board transitions and key departures
+  | "legal"             // Lawsuits, injunctions, settlements, patent disputes
+  | "regulatory"        // SEC/DOJ/FTC actions, antitrust reviews, compliance orders
+  | "government"        // Defense contracts, subsidies, export controls, tariffs
+  | "macro"             // CPI, NFP, GDP, PMI, geopolitical shocks
+  | "rates"             // FOMC decisions, Treasury yield shifts, central bank guidance
+  | "analyst"           // Institutional upgrades, downgrades, price target revisions
+  | "partnership"       // Strategic alliances, hyperscaler compute deals
+  | "security_incident" // Exploits, breaches, outages, smart contract incidents
+  | "listing"           // Exchange listings, index inclusions, delistings
+  | "capital_return"    // Share buybacks, dividends, token burns, treasury locks
+  | "market_move"       // Unusual volume, premium/discount dislocations
+  | "other";
+```
+
+---
+
+## Asset Mapping & Move Explanation Engine
+
+When a trader asks **"Why is this asset moving?"** (`GET /v1/intelligence/assets/:key/explain`), Sisera correlates:
+
+1. **Direct Asset Matches:** Events matching the asset's ticker, company name, aliases, or Solana mint address.
+2. **Sector & Macro Spillover:** High-severity `macro`, `rates`, or sector-wide events affecting the asset's industry group.
+3. **Price & Fair-Value Dislocation:** Real-time movement in the Solana token relative to its Pyth Core equity reference or PreStocks issuer mark.
+4. **Portfolio Exposure Attribution:** Highlights which positions in your active book are exposed to the event cluster.

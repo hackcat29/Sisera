@@ -1,0 +1,60 @@
+---
+title: "Meteora Dynamic Bonding Curves (DBC)"
+sidebarTitle: "Meteora DBC Launches"
+description: "Programmable, stock-aware bonding curves quoted natively in SOL, USDC, or tokenized equities with DAMM v2 graduation."
+icon: "rocket"
+---
+
+Sisera integrates the **Meteora Dynamic Bonding Curve (DBC) SDK** (`@meteora-ag/dynamic-bonding-curve-sdk`) directly into the Launch Studio (`/launch` and `/v1/launches/dbc/*`), enabling creators to form programmable, stock-aware liquidity curves on Solana.
+
+---
+
+## Native Stock-Paired Quoting
+
+Unlike standard launchpads restricted to SOL, Sisera allows a Meteora DBC market to be quoted in:
+- **SOL** (`So11111111111111111111111111111111111111112`)
+- **USDC** (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`)
+- **Any Tokenized Equity (xStock) or PreStocks Mint** — pricing the newly launched agent or asset natively in shares of `NVDAx`, `AAPLx`, `TSLAx`, or pre-IPO tokens.
+
+---
+
+## The Three Institutional Curve Presets (`DBC_PRESETS`)
+
+Sisera provides three specialized bonding curve configurations (`GET /v1/launches/dbc/presets`) designed around whether the asset has an external reference value or an agent treasury:
+
+| Preset Key | Graduation Multiple | Anti-Sniper Fee Decay | Creator Fee Share | Locked Vesting | Migrated DAMM v2 Fee |
+| --- | --- | --- | --- | --- | --- |
+| `reference_anchored` | **4×** starting FDV | `500 bps` ➔ `100 bps` (Exponential, 30m / 30 periods) | `50%` | `0%` | `30 bps` + Dynamic |
+| `price_discovery` | **25×** starting FDV | `300 bps` ➔ `100 bps` (Linear, 60m / 20 periods) | `50%` | `0%` | `100 bps` + Dynamic |
+| `agent_treasury` | **10×** starting FDV | `400 bps` ➔ `100 bps` (Exponential, 40m / 24 periods) | `75%` | **10% of supply** (vests over 180 days post-graduation) | `30 bps` + Dynamic |
+
+<Tabs>
+  <Tab title="Reference-Anchored (4×)">
+    Designed for tokens meant to track a stock, index, or known external reference value. Features a tight **4× graduation curve** and an aggressive exponential anti-sniper fee (`5%` decaying to `1%` over 30 minutes) so sniper bots cannot extract early dislocation value.
+  </Tab>
+  <Tab title="Open Price Discovery (25×)">
+    Designed for novel assets without a fixed external reference mark. Uses a wider **25× graduation multiple** and a smooth 60-minute linear fee schedule (`3%` to `1%`).
+  </Tab>
+  <Tab title="Agent Treasury (10× + Vesting)">
+    Designed specifically for autonomous trading agents. Locks **10% of total supply** for the agent's treasury, vesting linearly over **180 days after graduation**, and routes **75% of trading fees** to fund the agent's ongoing compute and capital operations.
+  </Tab>
+</Tabs>
+
+---
+
+## Preview, Simulation & Non-Custodial Launch Workflow
+
+<Steps>
+  <Step title="1. Preview Curve & Price Ladder (POST /v1/launches/dbc/preview)">
+    Computes the exact starting price, graduation market cap threshold, 10-step price ladder across curve fill percentages, fee schedule timeline, and locked vesting schedule before touching the chain.
+  </Step>
+  <Step title="2. Build & RPC-Simulate Transactions (POST /v1/launches/dbc/prepare)">
+    Constructs both the **Pool Config** transaction and the **Pool Creation (+ Optional First Buy)** transaction, co-signs with the fresh ephemeral mint/config keypairs, and **simulates both transactions against Solana RPC** to verify zero instruction errors.
+  </Step>
+  <Step title="3. Creator Wallet Signing & Submission (POST /v1/launches/:id/submit)">
+    The creator signs in their wallet. Sisera verifies that the signed transaction instructions match the prepared bytes before broadcasting to Solana mainnet.
+  </Step>
+  <Step title="4. Live Graduation & DAMM v2 Monitoring (GET /v1/launches/:id/monitor)">
+    After launch, Sisera continuously tracks curve fill percentage, quote reserve accumulation, graduation into **Meteora DAMM v2**, price relative to the paired stock, and accrued creator fees.
+  </Step>
+</Steps>

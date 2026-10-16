@@ -1,0 +1,50 @@
+---
+title: "Clawpump Agent Market & Token Launches"
+sidebarTitle: "Clawpump Agent Tokens"
+description: "Discover, analyze, and launch stock-paired AI agent tokens on Solana with transparent holder concentration and risk scores."
+icon: "boxes-stacked"
+---
+
+**Clawpump** is integrated into Sisera (`/clawpump`, `/launch`, and `/v1/agent-market/*`) as both a **discoverable asset universe** and **self-funded agent token launch infrastructure**.
+
+---
+
+## Agent Market Discovery & Analytics
+
+Every Clawpump agent token listed in Sisera is enriched with institutional onchain analytics (`GET /v1/agent-market/tokens/:mint`, `GET /v1/agent-market/rank`, and `GET /v1/agent-market/stock-paired`):
+
+<CardGroup cols={2}>
+  <Card title="True Holder Concentration" icon="chart-pie">
+    Uses Helius RPC/DAS inspection to separate liquidity pools, bonding curves, and vesting lockers from true circulating wallets—preventing bonding curve reserves from being misreported as whale concentration.
+  </Card>
+  <Card title="Paired-Stock Relative Performance" icon="scale-unbalanced">
+    Tracks each agent token's performance directly against its paired equity benchmark (e.g., `NVDAx`, `AAPLx`, `TSLAx`) to answer *"Which Clawpump agents are outperforming their paired stock?"*
+  </Card>
+  <Card title="Transparent Risk Score" icon="shield-exclamation">
+    Computes an explainable risk score from pool liquidity depth, top-wallet concentration, creator allocation/vesting state, token age, and recent volume stability.
+  </Card>
+  <Card title="Unified Portfolio Attribution" icon="briefcase">
+    Recognizes when an agent token is paired to an underlying equity and flags **duplicated economic exposure** if you simultaneously hold both the stock and its paired agent token.
+  </Card>
+</CardGroup>
+
+---
+
+## Launching an Agent via Clawpump (`POST /v1/launches/clawpump/quote`)
+
+Inside the **Launch Studio** (`/launch`), operators can turn any Sisera autonomous agent into a live token on Pump.fun through Clawpump's self-funded launch gateway:
+
+<Steps>
+  <Step title="1. Select Agent & Stock Pair">
+    Choose your Sisera agent and select a supported stock pair (`GET /v1/clawpump/pairs`) such as `NVDAx`, `AAPLx`, or `TSLAx`, along with your desired creator fee share.
+  </Step>
+  <Step title="2. Request a Self-Funded Launch Quote">
+    Call `POST /v1/launches/clawpump/quote`. Sisera registers the launch intent with Clawpump (`https://clawpump.tech/api/v1/launch/self-funded`) and returns the exact SOL payment amount, recipient address, and unsigned payment transaction.
+  </Step>
+  <Step title="3. Non-Custodial Wallet Payment">
+    The creator signs the payment transaction directly in their Solana wallet. Sisera never holds creator keys.
+  </Step>
+  <Step title="4. Idempotent Finalization & Indexing">
+    Submit the signed payment via `POST /v1/launches/:id/submit`. The launch is strictly idempotent on the payment signature and resumable across browser sessions. Once finalized, the new mint is automatically indexed in the Sisera catalog.
+  </Step>
+</Steps>

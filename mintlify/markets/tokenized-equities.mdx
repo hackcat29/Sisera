@@ -1,0 +1,58 @@
+---
+title: "Public Tokenized Equities (xStocks)"
+sidebarTitle: "Tokenized Equities (xStocks)"
+description: "24/7 Solana tokenized equities benchmarked against Pyth Core reference feeds, session regimes, and fair-value arbitrage."
+icon: "chart-candlestick"
+---
+
+Sisera integrates public tokenized equities on Solana (**xStocks** such as `NVDAx`, `AAPLx`, `TSLAx`, `MSFTx`, `METAx`, `AMZNx`, and `COINx`) as first-class equity instruments rather than generic SPL tokens.
+
+Every public tokenized equity is continuously benchmarked against its underlying exchange-listed share using **Pyth Core** equity reference feeds via Hermes (with an authenticated public equity quote fallback).
+
+---
+
+## Reference & Fair-Value Layer
+
+Because Solana tokenized stocks trade **24/7/365** while traditional US equity exchanges operate across discrete market sessions (`PRE_MARKET`, `REGULAR`, `POST_MARKET`, `CLOSED`), price dislocations naturally emerge between the onchain token and the underlying share.
+
+Sisera computes and displays four core valuation metrics for every xStock:
+
+| Metric | Formula / Source | Purpose |
+| --- | --- | --- |
+| **Onchain Token Price** | Live Solana DEX / Jupiter executable mid-price | The current price to buy or sell the SPL token on Solana. |
+| **Pyth Reference Price** | Pyth Core `POST /v1/latest_price` (`feedUpdateTimestamp`) | Authoritative reference price of the underlying exchange-listed share. |
+| **Fair-Value Gap (Premium / Discount)** | $\frac{\text{Token Price} - \text{Reference Price}}{\text{Reference Price}} \times 100$ | Measures whether the onchain token trades at a premium ($>0\%$) or discount ($<0\%$) to fair value. |
+| **Reference Freshness** | Current time minus `feedUpdateTimestamp` | Explicitly distinguishes live regular-session feeds from carried-forward weekend/overnight prices. |
+
+<Warning>
+  **Stale Reference Protection:** A reference feed is never treated as an executable token price, and a stale or carried-forward reference is explicitly flagged in the UI and blocked from triggering fresh fair-value policies unless session rules allow it.
+</Warning>
+
+---
+
+## Fair-Value Opportunity Screens
+
+Through the `/stocks` terminal view and the `GET /v1/rankings/fair-value` endpoint, traders can rank the entire tokenized equity universe by:
+
+- **Deepest Discount to Reference:** Tokenized stocks trading significantly below their Pyth equity reference mark.
+- **Highest Premium to Reference:** Tokenized stocks trading above their reference mark due to onchain momentum or after-hours news.
+- **Onchain Liquidity Depth:** Pool depth and maximum trade size before exceeding your slippage budget.
+- **Event Intensity:** Equities currently experiencing high-severity corroborated SEC EDGAR filings or wire events.
+
+---
+
+## Basis & Dislocation Arbitrage
+
+Sisera includes a dedicated **Live Basis Service** (`GET /v1/arbitrage/basis` and `POST /v1/arbitrage/arm`) that monitors the spread between Solana tokenized equities, reference quotes, and perpetual venues:
+
+<Steps>
+  <Step title="Detect Dislocation">
+    Identify when a tokenized equity (e.g., `NVDAx`) diverges from its Pyth reference price beyond normal transaction and slippage costs.
+  </Step>
+  <Step title="Simulate Portfolio & Slippage Impact">
+    Verify pool liquidity on Solana and ensure the trade size fits within your account's concentration and mandate limits.
+  </Step>
+  <Step title="Arm Automated Basis Policy">
+    Use `POST /v1/arbitrage/arm` to deploy a deterministic policy that automatically enters when the discount exceeds your target threshold (e.g., `-2.5%`) and exits as the spread mean-reverts toward fair value.
+  </Step>
+</Steps>

@@ -1,0 +1,64 @@
+---
+title: "Agents, Launches, Marketplace & Leaderboard Endpoints"
+sidebarTitle: "Agents, Launches & Marketplace"
+description: "REST endpoints for Autonomous Agents, 7-Stage Promotion, Agent Vaults, Clawpump, Meteora DBC, Strategy Marketplace, and Wallet Rankings."
+icon: "rocket"
+---
+
+## Autonomous Agents, Promotion Gates & Vaults
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/agents` | `agent:read` | Lists all autonomous agents, active manifest versions, lifecycle stages, and performance summaries. |
+| `POST` | `/v1/agents` | `agent:read` | Creates a new autonomous agent in the `draft` lifecycle stage. |
+| `GET` | `/v1/agents/:id` | `agent:read` | Returns full manifest versions, backtest/stress evidence, promotion history, and decision trail for `:id`. |
+| `POST` | `/v1/agents/:id/versions` | `agent:read` | Publishes a new immutable, cryptographically hashed manifest version (resets evaluation to `draft`). |
+| `POST` | `/v1/agents/:id/backtest` | `agent:read` | Runs the deterministic historical candle backtester (`Sharpe > 1.8`, `Max DD < 10%`) and persists evidence. |
+| `POST` | `/v1/agents/:id/stress_test` | `agent:read` | Runs simulated regime shocks (flash crash, weekend gap, liquidity freeze, quote de-peg) and persists evidence. |
+| `POST` | `/v1/agents/:id/tick` | `agent:read` | Triggers an immediate deterministic evaluation tick for `:id`. |
+| `POST` | `/v1/agents/:id/promote` | `agent:read` | Promotes `:id` to the next stage in the 7-stage pipeline (`draft` ➔ `backtest` ➔ `stress_test` ➔ `paper` ➔ `shadow` ➔ `limited_live` ➔ `live`), enforced by database triggers. |
+| `POST` | `/v1/agents/:id/autonomy` | `agent:read` | Updates the agent's autonomy disposition (`research`, `suggest`, `confirm`, `policy_auto`, `autonomous`, `risk_only`). |
+| `POST` | `/v1/agents/:id/pause` | `agent:read` | Immediately pauses an active agent. |
+| `POST` | `/v1/agents/emergency-halt` | `risk:manage` | Fleet-wide emergency kill switch: pauses all active live agents and cancels pending proposals. |
+| `GET` | `/v1/agents/:id/vault` | `agent:read` | Returns capital allocation, high-water mark, and depositor accounting for the agent's isolated vault. |
+| `POST` | `/v1/agents/:id/vault/deposit` | `trade:execute` | Records a capital deposit into the agent's vault within manifest limits. |
+| `GET` | `/v1/agent-vaults/leaderboard` | `market:read` | Ranks agent vaults by realized return, Sharpe ratio, and drawdown discipline. |
+| `GET` | `/v1/agent-orders` | `agent:read` | Lists agent-generated trade proposals awaiting operator confirmation or execution. |
+| `POST` | `/v1/agent-orders/:id/approve` | `trade:execute` | Approves a pending `confirm`-mode agent proposal. |
+| `POST` | `/v1/agent-orders/:id/reject` | `trade:execute` | Rejects a pending agent proposal. |
+| `POST` | `/v1/agent-orders/:id/execute` | `trade:execute` | Submits the signed transaction for an approved agent proposal. |
+
+---
+
+## Clawpump & Meteora DBC Launches
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/agent-market/stock-paired` | `market:read` | Lists Clawpump agent tokens paired against equity benchmarks with relative outperformance metrics. |
+| `GET` | `/v1/agent-market/rank` | `market:read` | Ranks Clawpump agent tokens by liquidity, lowest holder concentration, risk score, or volume. |
+| `GET` | `/v1/agent-market/today` | `market:read` | Summarizes daily launches, volume leaders, and risk changes across the Clawpump universe. |
+| `GET` | `/v1/agent-market/tokens/:mint` | `market:read` | Returns deep onchain analytics for `:mint`: pool vs. wallet holder concentration, vesting, risk score, and paired stock comparison. |
+| `GET` | `/v1/launches/dbc/presets` | `market:read` | Returns the 3 Meteora Dynamic Bonding Curve presets (`reference_anchored`, `price_discovery`, `agent_treasury`). |
+| `POST` | `/v1/launches/dbc/preview` | `market:read` | Previews curve parameters, 10-step price ladder, graduation threshold, and fee decay schedule. |
+| `POST` | `/v1/launches/dbc/prepare` | `agent:read` | Builds and RPC-simulates the Meteora DBC Config and Pool Creation transactions for creator wallet signing. |
+| `POST` | `/v1/launches/clawpump/quote` | `agent:read` | Requests a self-funded stock-paired Pump.fun launch quote via Clawpump. |
+| `POST` | `/v1/launches/:id/submit` | `agent:read` | Verifies and broadcasts signed launch transactions (idempotent and resumable). |
+| `GET` | `/v1/launches` | `market:read` | Lists all token and DBC launches. |
+| `GET` | `/v1/launches/:id/monitor` | `market:read` | Monitors live curve progress, reserve depth, DAMM v2 graduation, and accrued creator fees. |
+| `GET` | `/v1/launches/:id/metadata` | Public | Serves off-chain Metaplex token metadata JSON for launched tokens. |
+
+---
+
+## Strategy Marketplace & Wallet Leaderboard
+
+| Method | Endpoint | Permission | Description |
+| --- | --- | --- | --- |
+| `GET` | `/v1/marketplace` | `market:read` | Lists published strategy manifests available for free or one-time USDC licensing. |
+| `GET` | `/v1/marketplace/:id` | `market:read` | Returns strategy rules, backtest history, reviews, and license status for listing `:id`. |
+| `POST` | `/v1/marketplace` | `agent:read` | Publishes an immutable agent manifest version with a verified creator Solana payout wallet (`0–10,000 USDC`). |
+| `PUT` | `/v1/marketplace/:id/unlist` | `agent:read` | Unlists a strategy from new purchases while preserving access for existing license holders. |
+| `POST` | `/v1/marketplace/:id/checkout` | `agent:read` | Prepares a non-custodial mainnet Solana USDC transfer (with unique memo) directly to the creator's wallet. |
+| `POST` | `/v1/marketplace/checkouts/:id/settle` | `agent:read` | Verifies the signed USDC payment transaction byte-for-byte, settles on Solana, and grants the license. |
+| `POST` | `/v1/marketplace/:id/import` | `agent:read` | Imports a licensed strategy into the buyer's account as a new `draft` / `research` agent. |
+| `GET` | `/v1/leaderboard` | `market:read` | Returns the live realized P&L leaderboard (`24h`, `7d`, `30d`) across tracked Solana (FIFO) and Hyperliquid EVM wallets. |
+| `POST` | `/v1/leaderboard/wallets` | `market:read` | Registers a new Solana or EVM wallet address into the tracked leaderboard universe. |
