@@ -15,6 +15,10 @@
   "navbar": {
     "links": [
       {
+        "label": "Terminal",
+        "href": "https://sisera.xyz"
+      },
+      {
         "label": "GitHub",
         "href": "https://github.com/hackcat29/Sisera"
       },
@@ -25,8 +29,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Launch Terminal",
-      "href": "https://sisera.xyz"
+      "label": "Buy $SISERA",
+      "href": "https://pump.fun/coin/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5"
     }
   },
   "navigation": {
