@@ -244,7 +244,13 @@ export function OperatorShell({
                     <Link
                       key={item.href}
                       href={item.href}
-                      title={collapsed ? item.label : undefined}
+                      title={
+                        collapsed
+                          ? item.label
+                          : item.hint
+                            ? `${item.label} (${item.hint})`
+                            : undefined
+                      }
                       className={cn(
                         "group flex h-10 items-center gap-3 rounded-md border border-transparent px-2 text-[13px] text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-slate-100",
                         active &&
@@ -253,16 +259,7 @@ export function OperatorShell({
                       )}
                     >
                       <item.icon size={15} strokeWidth={1.7} className="shrink-0" />
-                      {!collapsed && (
-                        <>
-                          <span className="truncate">{item.label}</span>
-                          {item.hint && (
-                            <span className="ml-auto font-mono text-[10px] text-slate-400">
-                              {item.hint}
-                            </span>
-                          )}
-                        </>
-                      )}
+                      {!collapsed && <span className="truncate">{item.label}</span>}
                     </Link>
                   );
                 })}

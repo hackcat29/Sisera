@@ -9,6 +9,8 @@ export const site = {
   themeColor: "#0c141b",
   /** Canonical GitHub repository */
   github: "https://github.com/hackcat29/Sisera",
+  /** $SISERA token page on pump.fun */
+  tokenUrl: "https://pump.fun/coin/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5",
   /** Public contact address shown on the about and legal pages. */
   contactEmail: process.env.NEXT_PUBLIC_CONTACT_EMAIL || "admin@sisera.xyz",
   /** Official profiles for Organization.sameAs. Add each account once it is live. */

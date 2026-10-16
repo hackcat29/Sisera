@@ -54,14 +54,12 @@ export default async function AgentsPage({
       <div className="overflow-x-auto border-b border-line bg-panel px-4 py-5">
         <div className="flex min-w-[760px] items-center">
           {stages.map((stage, index) => (
-            <div key={stage} className="flex flex-1 items-center">
+            <div key={stage} className="flex flex-1 items-start">
               <div className="flex min-w-24 flex-col items-center">
-                <span className="grid size-7 place-items-center border border-line-strong bg-slate-900 font-mono text-[10px] text-slate-400">
-                  {index + 1}
-                </span>
+                <span className="size-2 border border-line-strong bg-slate-900" />
                 <span className="mt-2 text-[10px] text-slate-500">{stage}</span>
               </div>
-              {index < stages.length - 1 && <span className="h-px flex-1 bg-line" />}
+              {index < stages.length - 1 && <span className="mt-1 h-px flex-1 bg-line" />}
             </div>
           ))}
         </div>

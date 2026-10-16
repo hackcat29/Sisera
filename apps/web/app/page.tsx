@@ -191,12 +191,12 @@ export default async function LandingPage() {
           alt=""
           priority
           sizes="100vw"
-          className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[58%] object-cover object-left opacity-60 xl:block"
+          className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[45%] object-cover object-left opacity-60 xl:block"
         />
-        <div className="relative mx-auto grid max-w-[1320px] gap-14 px-4 pb-20 pt-16 md:px-8 md:pt-24 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] xl:items-center">
+        <div className="relative mx-auto grid max-w-[1320px] gap-14 px-4 pb-20 pt-16 md:px-8 md:pt-24 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] xl:gap-12 xl:pt-20 xl:items-center">
           <div>
             <p className="eyebrow">Tokenized stocks · Pre-IPO · Crypto</p>
-            <h1 className="display mt-6 text-[clamp(2.75rem,6vw,5.5rem)] leading-[0.98] text-bone">
+            <h1 className="display mt-6 text-[clamp(2.75rem,5vw,4.5rem)] leading-[0.98] text-bone">
               The research terminal for tokenized stocks and{" "}
               <span className="text-bronze-300">private markets.</span>
             </h1>
@@ -211,12 +211,14 @@ export default async function LandingPage() {
               >
                 Open the terminal free <ArrowRight size={16} />
               </Link>
-              <Link
-                href="#markets"
+              <a
+                href={site.tokenUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 border border-line-strong px-5 py-3.5 text-sm text-bone hover:border-bone"
               >
-                How it works
-              </Link>
+                Buy $Sisera <ArrowUpRight size={15} />
+              </a>
             </div>
             <p className="mt-6 flex items-center gap-2 text-[13px] text-slate-300">
               <span className="size-1.5 bg-[var(--up)]" />
@@ -260,7 +262,7 @@ export default async function LandingPage() {
         <Chapter
           image={candlesImage}
           align="left"
-          eyebrow="01 · Tokenized stocks"
+          eyebrow="Tokenized stocks"
           title="Every stock token, measured against the share it tracks."
           body="More than a thousand tokenized stocks are listed on Solana, and they trade when the shares do not. Sisera puts each token beside its underlying share price, second by second, and flags when the US market is closed and the gap is likely to be wide."
         />
@@ -311,7 +313,7 @@ export default async function LandingPage() {
         <Chapter
           image={coinsImage}
           align="left"
-          eyebrow="02 · Private markets"
+          eyebrow="Private markets"
           title="Pre-IPO tokens, priced against the issuer's own mark."
           body="For private-company tokens, the number that matters is the gap between what the token trades at and what the issuer says the company is worth. Sisera shows both, the implied valuation, and the price history behind them."
         />
@@ -347,7 +349,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-[1320px] px-4 py-24 md:px-8">
           <div className="grid gap-8 lg:grid-cols-2 lg:items-end">
             <div>
-              <p className="eyebrow">03 · Intelligence</p>
+              <p className="eyebrow">Intelligence</p>
               <h2 className="display mt-4 text-5xl leading-[1.02] text-bone">
                 Ask why it moved before you ask whether to trade.
               </h2>
@@ -371,18 +373,15 @@ export default async function LandingPage() {
         <Chapter
           image={gatesImage}
           align="top"
-          eyebrow="04 · Agents"
+          eyebrow="Agents"
           title="Seven gates between an idea and your capital."
           body="Start from a template, change the markets, rules, and limits, and save your own agent. Each one is a hashed policy with its limits declared up front; agents research and propose, and you decide."
         />
         <div className="mx-auto max-w-[1320px] px-4 py-20 md:px-8">
           <ol className="grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-7">
-            {lifecycle.map(([stage, detail], index) => (
+            {lifecycle.map(([stage, detail]) => (
               <li key={stage} className="flex flex-col bg-ink-deep p-5">
-                <span className="font-mono text-[11px] text-bronze-300">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <span className="mt-6 text-[15px] font-semibold text-bone">{stage}</span>
+                <span className="text-[15px] font-semibold text-bone">{stage}</span>
                 <span className="mt-2 text-[12px] leading-5 text-slate-400">{detail}</span>
               </li>
             ))}
@@ -391,7 +390,7 @@ export default async function LandingPage() {
         <Chapter
           image={vaultImage}
           align="right"
-          eyebrow="05 · Safeguards"
+          eyebrow="Safeguards"
           title="Limits you set, enforced before anything moves."
           body="Capital caps, drawdown limits, and a kill switch travel with every agent, and paper accounts let you rehearse a thesis before it costs anything."
         />
