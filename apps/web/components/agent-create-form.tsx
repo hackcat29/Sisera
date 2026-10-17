@@ -56,14 +56,14 @@ export function AgentCreateForm({
         body: JSON.stringify(body),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Could not save the agent.");
+      if (!response.ok) throw new Error(payload.message ?? "Could not save the Superbot.");
       setMessage(
         "Strategy saved. Open it to run the backtest and move it through the evaluation stages.",
       );
       if (payload.data?.id) router.push(`/agents/${encodeURIComponent(payload.data.id)}`);
       else router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save the agent.");
+      setMessage(error instanceof Error ? error.message : "Could not save the Superbot.");
     } finally {
       setWorking(false);
     }

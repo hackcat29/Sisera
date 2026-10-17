@@ -350,7 +350,7 @@ export function AgentDetail({ id }: { id: string }) {
         <Note tone="warning">{error}</Note>
       </div>
     );
-  if (!detail) return <Loading label="Loading agent…" />;
+  if (!detail) return <Loading label="Loading Superbot…" />;
   const current = detail.evaluations.filter(
     (evaluation) => evaluation.manifestVersion === detail.manifest.version,
   );

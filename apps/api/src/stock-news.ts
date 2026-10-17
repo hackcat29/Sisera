@@ -103,7 +103,7 @@ export function relevantCompanyNews(
 export class StockNewsClient {
   private readonly cache = new Map<
     string,
-    { until: number; value: { data: NewsItem[]; providers: string[] } }
+    { until: number; value: { data: NewsItem[]; providers: string[]; available: boolean } }
   >();
   constructor(
     private readonly gnewsKey?: string,
@@ -114,7 +114,7 @@ export class StockNewsClient {
   async search(
     company: string,
     publicSymbol?: string,
-  ): Promise<{ data: NewsItem[]; providers: string[] }> {
+  ): Promise<{ data: NewsItem[]; providers: string[]; available: boolean }> {
     const key = `${company}:${publicSymbol ?? ""}`;
     const cached = this.cache.get(key);
     if (cached && cached.until > Date.now()) return cached.value;
@@ -279,7 +279,11 @@ export class StockNewsClient {
         return true;
       })
       .slice(0, 20);
-    const value = { data, providers };
+    const value = {
+      data,
+      providers,
+      available: results.some((result) => result.status === "fulfilled"),
+    };
     this.cache.set(key, { until: Date.now() + 5 * 60_000, value });
     return value;
   }

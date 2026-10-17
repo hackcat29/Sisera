@@ -14,7 +14,10 @@
     "lint:fix": "biome check --write .",
     "db:migrate": "node scripts/migrate.mjs",
     "test": "turbo run test --cache-dir=.turbo/cache",
-    "typecheck": "turbo run typecheck --cache-dir=.turbo/cache"
+    "typecheck": "turbo run typecheck --cache-dir=.turbo/cache",
+    "buybot": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts watch",
+    "buybot:test": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts test",
+    "buybot:chatid": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts chatid"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

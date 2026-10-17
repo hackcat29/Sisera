@@ -19,6 +19,7 @@ declare module "fastify" {
  * wallets, agents, alerts, and paid feeds still require a Privy session.
  */
 export const publicMarketRoutes: ReadonlySet<string> = new Set([
+  "/v1/trade-check",
   "/v1/public-stocks",
   "/v1/private-markets",
   "/v1/market-overview",

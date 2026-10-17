@@ -10,9 +10,8 @@ import { StageTrack } from "../../../../components/platform/ui";
 import { accountErrorMessage, getAgents } from "../../../../lib/api";
 
 export const metadata: Metadata = {
-  title: "Agents",
-  description:
-    "Draft rule-bound research agents with capital caps, drawdown limits, and a kill switch.",
+  title: "Superbots",
+  description: "Draft rule-bound Superbots with capital caps, drawdown limits, and a kill switch.",
 };
 
 export const dynamic = "force-dynamic";
@@ -45,8 +44,8 @@ export default async function AgentsPage({
     <div>
       <PageHeader
         eyebrow="Trading strategies"
-        title="Agents"
-        description="Turn strategies into governed agents: executable rules, a 5-year backtest, stress tests, paper and shadow trading, then limited live capital — every step recorded as evidence."
+        title="Superbots"
+        description="Turn strategies into Superbots: executable rules, a 5-year backtest, stress tests, paper and shadow trading, then limited live capital — every step recorded as evidence."
         actions={
           <StatusBadge tone="neutral">{agents?.custom.length ?? 0} saved strategies</StatusBadge>
         }

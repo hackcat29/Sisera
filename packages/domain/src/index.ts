@@ -280,3 +280,4 @@ export const ROLE_PERMISSIONS: Readonly<Record<UserRole, readonly Permission[]>>
 export function roleCan(role: UserRole, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);
 }
+export type { TradeCheckReport, TradeCheckAnswer } from "./trade-check.js";

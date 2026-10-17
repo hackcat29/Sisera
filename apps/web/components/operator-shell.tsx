@@ -64,6 +64,7 @@ const navigation = [
     label: "Research",
     items: [
       { href: "/intelligence", label: "Intelligence", hint: "⌥4", icon: BrainCircuit },
+      { href: "/trade-check", label: "Trade Check", hint: "", icon: ShieldCheck },
       { href: "/copilot", label: "Sisera AI", hint: "⌥8", icon: Sparkles },
       { href: "/macro", label: "Macro & chains", hint: "⌥5", icon: Globe2 },
       { href: "/social", label: "Social feeds", hint: "", icon: Rss },
@@ -96,6 +97,7 @@ const mobileTabs = [
 ];
 
 const quickActions = [
+  { href: "/trade-check", label: "Check a token before trading", icon: ShieldCheck },
   { href: "/copilot", label: "Ask Sisera AI why a market is moving", icon: Sparkles },
   { href: "/agents", label: "Build and backtest an agent", icon: Bot },
   { href: "/launch", label: "Launch an agent token or DBC market", icon: Rocket },

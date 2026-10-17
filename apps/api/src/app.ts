@@ -100,6 +100,8 @@ import { registerPlatformRoutes } from "./platform/routes.js";
 import { PlatformScheduler } from "./platform/scheduler.js";
 import { SecEdgarClient } from "./platform/sec-edgar.js";
 import { ThematicResearchService } from "./platform/thematic-research.js";
+import { registerTradeCheckRoutes } from "./platform/trade-check-routes.js";
+import { TradeCheckService } from "./platform/trade-check.js";
 import { WalletLeaderboardService } from "./platform/wallet-leaderboard.js";
 import { predictionInsights } from "./prediction-insights.js";
 import { PredictionPaperRejection, settlePredictionPaperOrder } from "./prediction-paper.js";
@@ -108,6 +110,7 @@ import { PredictionTradingService } from "./prediction-trading.js";
 import { SocialFeedClient } from "./social-feed.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { StockNewsClient } from "./stock-news.js";
+import { HeliusEnhancedTransaction, SiseraTelegramBuyBot } from "./telegram-buybot.js";
 import { type WalletChain, createWalletOwnershipChecker } from "./wallet-ownership.js";
 import { XStocksClient } from "./xstocks.js";
 
@@ -607,6 +610,24 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       }
     },
   );
+  const buyBot =
+    config.SISERA_BUYBOT_ENABLED &&
+    config.SISERA_TELEGRAM_BOT_TOKEN &&
+    config.SISERA_TELEGRAM_CHAT_ID &&
+    config.HELIUS_API_KEY
+      ? new SiseraTelegramBuyBot({
+          botToken: config.SISERA_TELEGRAM_BOT_TOKEN,
+          chatId: config.SISERA_TELEGRAM_CHAT_ID,
+          heliusApiKey: config.HELIUS_API_KEY,
+          mint: config.SISERA_BUYBOT_MINT,
+          minUsd: config.SISERA_BUYBOT_MIN_USD,
+          pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
+          terminalUrl: config.SISERA_PUBLIC_URL,
+          heliusClient: helius,
+          logger: app.log,
+        })
+      : null;
+
   app.post("/v1/helius/webhook", async (request, reply) => {
     if (!validWebhookSecret(request.headers.authorization, config.HELIUS_WEBHOOK_SECRET))
       return reply.code(401).send({ error: "unauthorized" });
@@ -616,6 +637,14 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         .send({ error: "identity_store_unavailable", message: "Event database is not configured" });
     const events = parseHeliusWebhook(request.body);
     const inserted = await recordSolanaWebhookEvents(config.DATABASE_URL, events);
+    if (buyBot && Array.isArray(request.body)) {
+      const enhanced = z.array(HeliusEnhancedTransaction).safeParse(request.body);
+      if (enhanced.success) {
+        void buyBot.processTransactions(enhanced.data).catch((err) => {
+          app.log.warn({ err }, "BuyBot webhook processing failed");
+        });
+      }
+    }
     return { accepted: events.length, inserted, status: "observation_only" };
   });
   app.get(
@@ -688,6 +717,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       ? new OpenRouterChat(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
       : null;
   const basis = new LiveBasisService(config.BINANCE_SPOT_BASE_URL, config.HYPERLIQUID_BASE_URL);
+  registerTradeCheckRoutes(
+    app,
+    new TradeCheckService({ rpcUrl: solanaRpcUrl, news: stockNews, chat }),
+  );
   const thematicResearch = new ThematicResearchService(
     catalog,
     intelligence,
@@ -2456,11 +2489,18 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   });
 
   // Warm the slow catalogues once the server starts so the first visitor never waits on them.
-  if (config.NODE_ENV !== "test")
+  if (config.NODE_ENV !== "test") {
     app.addHook("onReady", async () => {
       void xstocks.list().catch(() => undefined);
       void predictions.listOpenMarkets(1).catch(() => undefined);
       void refreshSpotUniverse();
+      if (buyBot) {
+        void buyBot.start();
+      }
     });
+    app.addHook("onClose", async () => {
+      buyBot?.stop();
+    });
+  }
   return app;
 }
