@@ -31,6 +31,21 @@ Live at **[sisera.xyz](https://sisera.xyz)** · Documentation at **[docs.sisera.
 
 🔒 **Security Reminder:** Sisera is strictly non-custodial. Team members and admins will **never** direct message you first, ask for your private keys, or send unverified transaction links.
 
+### Tokenomics & Distribution Schedule
+
+`$SISERA` was launched via a 100% fair launch on Solana (`Pump.fun` / `PumpSwap`) with zero presale, zero private VC rounds, and permanently revoked mint and freeze authorities (`mintAuthority: null`, `freezeAuthority: null`).
+
+| Parameter / Category | Details |
+| --- | --- |
+| **Token Name & Ticker** | `Sisera` (`SISERA`) |
+| **Network & Decimals** | Solana Mainnet (`6` decimals) |
+| **Contract Address (Mint)** | `4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5` |
+| **Initial Genesis Supply** | `1,000,000,000 SISERA` |
+| **Current Total & Circulating Supply** | `945,060,456.354228 SISERA` (**100% Unlocked & Circulating**) |
+| **Permanently Burned Supply** | `54,939,543.645772 SISERA` (**5.49% Burned**) |
+| **Presale / VC / Team Unlocks** | `0%` (No future emissions, cliffs, or vesting unlocks) |
+| **Top Holders Explorer** | [Solscan Holders](https://solscan.io/token/4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5#holders) |
+
 ---
 
 ## What Sisera does
