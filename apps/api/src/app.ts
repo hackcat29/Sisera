@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -623,6 +624,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           minUsd: config.SISERA_BUYBOT_MIN_USD,
           pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
           terminalUrl: config.SISERA_PUBLIC_URL,
+          // src/ and dist/ both sit one level below apps/api, so this reaches the repo's alert cards.
+          mediaDir: resolve(import.meta.dirname, "../../../stickers/alerts"),
           jupiterApiKey: config.JUPITER_API_KEY,
           // Own client without the wallet-tracking hook, so buyers aren't stored in tracked_wallets.
           heliusClient: new HeliusClient(solanaRpcUrl),
