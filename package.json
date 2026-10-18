@@ -16,7 +16,6 @@
     "test": "turbo run test --cache-dir=.turbo/cache",
     "typecheck": "turbo run typecheck --cache-dir=.turbo/cache",
     "buybot": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts watch",
-    "buybot:test": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts test",
     "buybot:chatid": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts chatid",
     "buybot:stickers": "pnpm --filter @sisera/api exec tsx src/buybot-cli.ts stickers",
     "stickers:render": "node scripts/render-stickers.mjs"
