@@ -9,7 +9,8 @@
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
-      "mobile/**"
+      "mobile/**",
+      "stickers/**"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
