@@ -228,6 +228,9 @@ describe("Sisera Telegram BuyBot", () => {
           { status: 200 },
         );
       }
+      if (url.includes("jup.ag")) {
+        return new Response(JSON.stringify({ [WSOL_MINT]: { usdPrice: 100 } }), { status: 200 });
+      }
       calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
       return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
     });
@@ -238,6 +241,7 @@ describe("Sisera Telegram BuyBot", () => {
       heliusApiKey: "test-helius",
       minUsd: 10,
       mediaDir: "/nonexistent",
+      minSendIntervalMs: 0,
       fetcher: mockFetch as unknown as typeof fetch,
     });
 
@@ -265,12 +269,185 @@ describe("Sisera Telegram BuyBot", () => {
     };
 
     const firstCount = await bot.processTransactions([tx]);
+    await bot.flushAlerts();
     expect(firstCount).toBe(1);
     expect(calls).toHaveLength(1);
 
     // Duplicate signature must not re-alert
     const secondCount = await bot.processTransactions([tx]);
+    await bot.flushAlerts();
     expect(secondCount).toBe(0);
     expect(calls).toHaveLength(1);
+  });
+
+  describe("delivery and polling", () => {
+    const dexScreenerPairs = {
+      pairs: [
+        {
+          pairAddress: SISERA_PRIMARY_POOL,
+          priceUsd: "0.0001",
+          priceNative: "0.000001",
+          quoteToken: { address: WSOL_MINT },
+          liquidity: { usd: 25000 },
+        },
+      ],
+    };
+
+    function buyTx(index: number, solSpent = 0.5) {
+      return {
+        signature: `${signature.slice(0, 80)}${String(index).padStart(8, "0")}`,
+        timestamp: 1792234793 + index,
+        type: "SWAP",
+        source: "PUMP_AMM",
+        feePayer: buyer,
+        tokenTransfers: [
+          {
+            fromUserAccount: buyer,
+            toUserAccount: SISERA_PRIMARY_POOL,
+            tokenAmount: solSpent,
+            mint: WSOL_MINT,
+          },
+          {
+            fromUserAccount: SISERA_PRIMARY_POOL,
+            toUserAccount: buyer,
+            tokenAmount: 500_000,
+            mint: SISERA_MINT,
+          },
+        ],
+        nativeTransfers: [],
+      };
+    }
+
+    function makeBot(
+      telegram: (url: string, body: Record<string, unknown>) => Response,
+      helius: (url: URL) => unknown = () => [],
+    ) {
+      const sent: Array<{ url: string; body: Record<string, unknown> }> = [];
+      const sleeps: number[] = [];
+      const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("dexscreener.com"))
+          return new Response(JSON.stringify(dexScreenerPairs), { status: 200 });
+        if (url.includes("jup.ag"))
+          return new Response(JSON.stringify({ [WSOL_MINT]: { usdPrice: 100 } }), { status: 200 });
+        if (url.includes("api.helius.xyz"))
+          return new Response(JSON.stringify(helius(new URL(url))), { status: 200 });
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        sent.push({ url, body });
+        return telegram(url, body);
+      });
+      const bot = new SiseraTelegramBuyBot({
+        botToken: "test-token",
+        chatId: "-100123456",
+        heliusApiKey: "test-helius",
+        minUsd: 2,
+        mediaDir: "/nonexistent",
+        minSendIntervalMs: 0,
+        fetcher: fetcher as unknown as typeof fetch,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      return { bot, sent, sleeps };
+    }
+
+    const ok = () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+
+    it("waits out Telegram 429s instead of dropping the alert", async () => {
+      let attempts = 0;
+      const { bot, sent, sleeps } = makeBot(() => {
+        attempts++;
+        return attempts === 1
+          ? new Response(JSON.stringify({ ok: false, parameters: { retry_after: 7 } }), {
+              status: 429,
+            })
+          : ok();
+      });
+
+      expect(await bot.processTransactions([buyTx(1)])).toBe(1);
+      await bot.flushAlerts();
+
+      expect(sent).toHaveLength(2);
+      expect(sleeps).toContain(7_000);
+    });
+
+    it("keeps delivering the rest of the queue after one message fails", async () => {
+      let attempts = 0;
+      const { bot, sent } = makeBot(() => {
+        attempts++;
+        return attempts === 1 ? new Response("bad request", { status: 400 }) : ok();
+      });
+
+      expect(await bot.processTransactions([buyTx(2), buyTx(1)])).toBe(2);
+      await bot.flushAlerts();
+
+      expect(sent).toHaveLength(2);
+    });
+
+    it("combines a backlog of buys into one message", async () => {
+      const { bot, sent } = makeBot(() => ok());
+
+      const txs = Array.from({ length: 8 }, (_, index) => buyTx(8 - index, 0.1 * (8 - index)));
+      expect(await bot.processTransactions(txs)).toBe(8);
+      await bot.flushAlerts();
+
+      expect(sent).toHaveLength(1);
+      expect(String(sent[0]?.body.text)).toContain("+8 $SISERA BUYS");
+    });
+
+    it("pages back through Helius until it reaches the last seen transaction", async () => {
+      const page = (from: number) =>
+        Array.from({ length: 100 }, (_, index) => ({ ...buyTx(from - index), tokenTransfers: [] }));
+      const requested: Array<string | null> = [];
+      let seeded = false;
+      const { bot } = makeBot(
+        () => ok(),
+        (url) => {
+          const before = url.searchParams.get("before-signature");
+          requested.push(before);
+          if (!seeded) {
+            seeded = true;
+            return page(100);
+          }
+          // Each page holds 100 signatures; pass the oldest one back to get the next page.
+          if (!before) return page(400);
+          return page(Number(before.slice(-8)) - 1);
+        },
+      );
+
+      await bot.pollOnce(); // seeds signatures 1-100
+      requested.length = 0;
+      await bot.pollOnce();
+
+      // 400-301, 300-201, 200-101, then 100-1 contains seen signatures and paging stops.
+      expect(requested).toHaveLength(4);
+      expect(requested[0]).toBeNull();
+      expect(requested[1]).toMatch(/00000301$/);
+      expect(requested[3]).toMatch(/00000101$/);
+    });
+
+    it("answers commands only in the configured chat, with a cooldown", async () => {
+      const updates = [
+        { update_id: 1, message: { chat: { id: -100999 }, text: "/price" } },
+        { update_id: 2, message: { chat: { id: -100123456 }, text: "/ca@sisera_bot" } },
+        { update_id: 3, message: { chat: { id: -100123456 }, text: "/ca" } },
+      ];
+      const { bot, sent } = makeBot((url) =>
+        url.includes("getUpdates")
+          ? new Response(JSON.stringify({ ok: true, result: updates }), { status: 200 })
+          : ok(),
+      );
+
+      await bot.pollTelegramCommands();
+      await bot.flushAlerts();
+
+      const replies = sent.filter((call) => !call.url.includes("getUpdates"));
+      expect(replies).toHaveLength(1);
+      expect(replies[0]?.url).toContain("/sendMessage");
+      expect(replies[0]?.body).toMatchObject({
+        chat_id: "-100123456",
+        text: `<code>${SISERA_MINT}</code>`,
+      });
+    });
   });
 });

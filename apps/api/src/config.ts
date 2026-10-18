@@ -70,15 +70,16 @@ const Environment = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().optional(),
   ),
+  // Runs the buybot inside the API process. Leave false when running `pnpm buybot`, or every buy posts twice.
   SISERA_BUYBOT_ENABLED: z
     .enum(["true", "false"])
-    .default("true")
+    .default("false")
     .transform((value) => value === "true"),
   SISERA_BUYBOT_MINT: z
     .string()
     .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
     .default("4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5"),
-  SISERA_BUYBOT_MIN_USD: z.coerce.number().nonnegative().default(5),
+  SISERA_BUYBOT_MIN_USD: z.coerce.number().nonnegative().default(2),
   SISERA_BUYBOT_POLL_INTERVAL_MS: z.coerce.number().int().min(2000).default(10000),
   SISERA_DISCORD_BOT_TOKEN: z.string().optional(),
   SISERA_DISCORD_CHANNEL_IDS: z.string().optional(),

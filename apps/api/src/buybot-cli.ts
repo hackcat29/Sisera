@@ -3,13 +3,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { readConfig } from "./config.js";
 import { HeliusClient } from "./helius.js";
-import {
-  SISERA_MINT,
-  SiseraTelegramBuyBot,
-  extractSiseraBuy,
-  formatSiseraBuyMessage,
-  formatSiseraStatsMessage,
-} from "./telegram-buybot.js";
+import { SiseraTelegramBuyBot } from "./telegram-buybot.js";
 
 const rootDir = resolve(import.meta.dirname, "../../..");
 const envPath = resolve(rootDir, ".env");
@@ -152,68 +146,11 @@ async function createStickerPack() {
   console.log(`[buybot] Created ${manifest.length}-sticker set: ${link}`);
 }
 
-async function runPreviewOrTest() {
-  if (!config.HELIUS_API_KEY) {
-    console.error(
-      "[buybot] HELIUS_API_KEY is required in .env to fetch on-chain $SISERA transactions.",
-    );
-    process.exit(1);
-  }
-
-  const bot = new SiseraTelegramBuyBot({
-    botToken: config.SISERA_TELEGRAM_BOT_TOKEN ?? "",
-    chatId: config.SISERA_TELEGRAM_CHAT_ID ?? "",
-    heliusApiKey: config.HELIUS_API_KEY,
-    mint: config.SISERA_BUYBOT_MINT ?? SISERA_MINT,
-    minUsd: config.SISERA_BUYBOT_MIN_USD,
-    pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
-    terminalUrl: config.SISERA_PUBLIC_URL,
-    mediaDir,
-    heliusClient: helius,
-  });
-
-  const snapshot = await bot.getMarketSnapshot(true);
-  console.log("\n=== LIVE $SISERA MARKET STATS CARD ===\n");
-  console.log(formatSiseraStatsMessage(snapshot, config.SISERA_BUYBOT_MINT));
-
-  const txs = await bot.fetchRecentTransactions(25);
-  let latestBuy = null;
-  for (const tx of txs) {
-    const extracted = extractSiseraBuy(
-      tx,
-      config.SISERA_BUYBOT_MINT,
-      new Set(snapshot.pairAddresses),
-    );
-    if (extracted) {
-      latestBuy = extracted;
-      break;
-    }
-  }
-
-  if (latestBuy) {
-    const holderInfo = await bot.getBuyerHolderInfo(latestBuy.buyer, latestBuy.tokenAmount);
-    const html = formatSiseraBuyMessage(latestBuy, snapshot, holderInfo);
-    console.log("\n=== LATEST ON-CHAIN $SISERA BUY ALERT PREVIEW ===\n");
-    console.log(html);
-  }
-
-  if (config.SISERA_TELEGRAM_BOT_TOKEN && config.SISERA_TELEGRAM_CHAT_ID) {
-    const result = await bot.sendLatestRealBuyPreview();
-    console.log(
-      `\n✅ Sent live $SISERA buy alert (tx: ${result.buy.signature.slice(0, 12)}...) to Telegram chat ${config.SISERA_TELEGRAM_CHAT_ID}!`,
-    );
-  } else {
-    console.log(
-      "\nℹ️  Set SISERA_TELEGRAM_BOT_TOKEN and SISERA_TELEGRAM_CHAT_ID in .env and re-run `pnpm buybot:test` to post this alert directly to your Telegram group.",
-    );
-  }
-}
-
 async function runWatchDaemon() {
   if (!config.SISERA_TELEGRAM_BOT_TOKEN || !config.SISERA_TELEGRAM_CHAT_ID) {
     console.error(
       "[buybot] Missing SISERA_TELEGRAM_BOT_TOKEN or SISERA_TELEGRAM_CHAT_ID in .env.\n" +
-        "Run `pnpm buybot:test` to preview live on-chain alerts in your terminal, or configure both variables in .env.",
+        "Set both in the .env at the repo root (each on one line, no duplicate empty lines from .env.example).",
     );
     process.exit(1);
   }
@@ -231,6 +168,7 @@ async function runWatchDaemon() {
     pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
     terminalUrl: config.SISERA_PUBLIC_URL,
     mediaDir,
+    jupiterApiKey: config.JUPITER_API_KEY,
     heliusClient: helius,
     logger: {
       info: (obj, msg) => console.log(`[buybot] ${msg ?? ""}`, obj),
@@ -257,8 +195,6 @@ if (mode === "chatid") {
   await discoverChatIds();
 } else if (mode === "stickers") {
   await createStickerPack();
-} else if (mode === "test" || mode === "preview") {
-  await runPreviewOrTest();
 } else {
   await runWatchDaemon();
 }

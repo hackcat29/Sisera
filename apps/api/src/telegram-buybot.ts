@@ -78,6 +78,7 @@ const DexScreenerResponse = z.object({
         pairAddress: z.string(),
         priceUsd: z.coerce.number().nonnegative().optional(),
         priceNative: z.coerce.number().nonnegative().optional(),
+        quoteToken: z.object({ address: z.string().optional() }).optional(),
         fdv: z.coerce.number().nonnegative().optional(),
         marketCap: z.coerce.number().nonnegative().optional(),
         liquidity: z
@@ -419,6 +420,65 @@ export function buildBuyBotInlineKeyboard(
   return { inline_keyboard: rows };
 }
 
+/**
+ * Formats one combined message for buys that queued up faster than Telegram lets the bot post.
+ */
+export function formatSiseraBuyBacklogMessage(
+  buys: Array<{ buy: SiseraBuyEvent; usdValue: number }>,
+): string {
+  const totalUsd = buys.reduce((sum, item) => sum + item.usdValue, 0);
+  const totalTokens = buys.reduce((sum, item) => sum + item.buy.tokenAmount, 0);
+  const largest = [...buys].sort((a, b) => b.usdValue - a.usdValue).slice(0, 10);
+  const lines = [
+    `🟢 <b>+${buys.length} $SISERA BUYS</b>`,
+    "",
+    `💵 <b>Total:</b> $${formatNumber(totalUsd, 2)} for ${formatNumber(totalTokens, 0)} SISERA`,
+    "",
+    ...largest.map(
+      ({ buy, usdValue }) =>
+        `• $${formatNumber(usdValue, 2)} by <a href="https://solscan.io/account/${buy.buyer}">${shortenAddress(buy.buyer)}</a> | <a href="https://solscan.io/tx/${buy.signature}">Tx</a>`,
+    ),
+  ];
+  if (buys.length > largest.length) lines.push(`…and ${buys.length - largest.length} smaller buys`);
+  return lines.join("\n");
+}
+
+type InlineKeyboard = { inline_keyboard: Array<Array<{ text: string; url: string }>> };
+
+interface QueuedTelegramMessage {
+  html: string;
+  keyboard?: InlineKeyboard;
+  /** Alert card to attach; plain text when null. */
+  media: SiseraAlertMedia | null;
+  chatId: string;
+  /** Set for buy alerts so a backlog of them can be merged into one message. */
+  buy?: { buy: SiseraBuyEvent; usdValue: number };
+}
+
+/** Telegram answered 429; `retryAfterMs` is how long it asked the bot to wait. */
+class TelegramRateLimitError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super(`Telegram rate limited the bot for ${retryAfterMs}ms`);
+  }
+}
+
+async function telegramRateLimit(response: Response): Promise<TelegramRateLimitError | null> {
+  if (response.status !== 429) return null;
+  const payload = (await response.json().catch(() => ({}))) as {
+    parameters?: { retry_after?: number };
+  };
+  return new TelegramRateLimitError(Math.max(1, payload.parameters?.retry_after ?? 5) * 1_000);
+}
+
+const HELIUS_PAGE_SIZE = 100;
+const HELIUS_MAX_PAGES = 5;
+const BACKLOG_THRESHOLD = 5;
+const MAX_SEND_ATTEMPTS = 5;
+const SOL_PRICE_TTL_MS = 60_000;
+const BOT_COMMANDS = new Set(["/price", "/stats", "/burn", "/ca"]);
+
+const JupiterPrice = z.record(z.string(), z.object({ usdPrice: z.number() }).nullable());
+
 export interface SiseraTelegramBuyBotOptions {
   botToken: string;
   chatId: string;
@@ -430,8 +490,15 @@ export interface SiseraTelegramBuyBotOptions {
   /** Directory holding the tier cards rendered by scripts/render-stickers.mjs. */
   mediaDir?: string;
   enableCommands?: boolean;
+  /** Used for the SOL/USD price that values SOL-denominated buys. */
+  jupiterApiKey?: string | undefined;
+  /** Gap between messages to the same group; Telegram allows about 20 per minute. */
+  minSendIntervalMs?: number;
+  /** How long each group command stays silent after it was answered. */
+  commandCooldownMs?: number;
   heliusClient?: HeliusClient;
   fetcher?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
   logger?: {
     info: (obj: unknown, msg?: string) => void;
     warn: (obj: unknown, msg?: string) => void;
@@ -446,11 +513,19 @@ export class SiseraTelegramBuyBot {
   private readonly terminalUrl: string;
   private readonly mediaDir: string;
   private readonly enableCommands: boolean;
+  private readonly minSendIntervalMs: number;
+  private readonly commandCooldownMs: number;
   private readonly fetcher: typeof fetch;
+  private readonly sleep: (ms: number) => Promise<void>;
   private readonly knownPools = new Set<string>([SISERA_PRIMARY_POOL]);
   private readonly seenSignatures = new Set<string>();
   private readonly cachedPhotoFileIds = new Map<SiseraAlertMedia, string>();
+  private readonly sendQueue: QueuedTelegramMessage[] = [];
+  private readonly commandLastAnsweredAt = new Map<string, number>();
   private cachedSnapshot: { data: SiseraMarketSnapshot; fetchedAt: number } | null = null;
+  private cachedSolPrice: { usd: number; fetchedAt: number } | null = null;
+  private draining: Promise<void> | null = null;
+  private lastSentAt = 0;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private commandTimer: ReturnType<typeof setInterval> | null = null;
   private lastUpdateId = 0;
@@ -459,12 +534,15 @@ export class SiseraTelegramBuyBot {
 
   constructor(private readonly options: SiseraTelegramBuyBotOptions) {
     this.mint = options.mint ?? SISERA_MINT;
-    this.minUsd = options.minUsd ?? 5;
+    this.minUsd = options.minUsd ?? 2;
     this.pollIntervalMs = options.pollIntervalMs ?? 10_000;
     this.terminalUrl = options.terminalUrl ?? "https://sisera.xyz";
     this.mediaDir = options.mediaDir ?? resolve(process.cwd(), "stickers", "alerts");
     this.enableCommands = options.enableCommands ?? true;
+    this.minSendIntervalMs = options.minSendIntervalMs ?? 3_100;
+    this.commandCooldownMs = options.commandCooldownMs ?? 30_000;
     this.fetcher = options.fetcher ?? globalThis.fetch;
+    this.sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   }
 
   /**
@@ -487,12 +565,21 @@ export class SiseraTelegramBuyBot {
       for (const pair of pairs) {
         if (pair.pairAddress) this.knownPools.add(pair.pairAddress);
       }
-      const primary =
-        pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0] ?? null;
+      pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+      const primary = pairs[0] ?? null;
+      // priceNative is quoted in the pair's quote token, so only a SOL-quoted pair yields a SOL price.
+      const solPair = pairs.find(
+        (pair) =>
+          pair.quoteToken?.address === WSOL_MINT &&
+          (pair.priceUsd ?? 0) > 0 &&
+          (pair.priceNative ?? 0) > 0,
+      );
 
       const priceUsd = primary?.priceUsd ?? 0;
-      const priceNativeSol = primary?.priceNative ?? 0;
-      const solPriceUsd = priceUsd > 0 && priceNativeSol > 0 ? priceUsd / priceNativeSol : 150;
+      const priceNativeSol = solPair?.priceNative ?? 0;
+      const solPriceUsd = await this.getSolPriceUsd(
+        solPair ? (solPair.priceUsd ?? 0) / priceNativeSol : 0,
+      );
       const marketCapUsd =
         primary?.marketCap ?? primary?.fdv ?? priceUsd * SISERA_CIRCULATING_SUPPLY;
       const liquidityUsd = pairs.reduce((sum, p) => sum + (p.liquidity?.usd ?? 0), 0);
@@ -513,10 +600,11 @@ export class SiseraTelegramBuyBot {
     } catch (error) {
       this.options.logger?.warn({ error }, "BuyBot failed to refresh DEXScreener snapshot");
       if (this.cachedSnapshot) return this.cachedSnapshot.data;
+      // With no SOL price, computeBuyUsdValue values SOL buys from the token amount instead.
       return {
         priceUsd: 0,
         priceNativeSol: 0,
-        solPriceUsd: 150,
+        solPriceUsd: await this.getSolPriceUsd(0),
         marketCapUsd: 0,
         liquidityUsd: 0,
         volume24hUsd: 0,
@@ -524,6 +612,39 @@ export class SiseraTelegramBuyBot {
         pairAddresses: [...this.knownPools],
       };
     }
+  }
+
+  /**
+   * SOL/USD from Jupiter, falling back to the SOL-quoted DEXScreener pair, then the last known price.
+   * Returns 0 when no source is available.
+   */
+  private async getSolPriceUsd(dexScreenerSolPrice: number): Promise<number> {
+    const now = Date.now();
+    if (this.cachedSolPrice && now - this.cachedSolPrice.fetchedAt < SOL_PRICE_TTL_MS) {
+      return this.cachedSolPrice.usd;
+    }
+    try {
+      const base = this.options.jupiterApiKey
+        ? "https://api.jup.ag/price/v3"
+        : "https://lite-api.jup.ag/price/v3";
+      const response = await this.fetcher(`${base}?ids=${WSOL_MINT}`, {
+        headers: this.options.jupiterApiKey ? { "x-api-key": this.options.jupiterApiKey } : {},
+        signal: AbortSignal.timeout(4_000),
+      });
+      if (!response.ok) throw new Error(`Jupiter price returned ${response.status}`);
+      const usd = JupiterPrice.parse(await response.json())[WSOL_MINT]?.usdPrice ?? 0;
+      if (Number.isFinite(usd) && usd > 0) {
+        this.cachedSolPrice = { usd, fetchedAt: now };
+        return usd;
+      }
+    } catch (error) {
+      this.options.logger?.warn({ error }, "BuyBot failed to refresh SOL price from Jupiter");
+    }
+    if (Number.isFinite(dexScreenerSolPrice) && dexScreenerSolPrice > 0) {
+      this.cachedSolPrice = { usd: dexScreenerSolPrice, fetchedAt: now };
+      return dexScreenerSolPrice;
+    }
+    return this.cachedSolPrice?.usd ?? 0;
   }
 
   /**
@@ -560,12 +681,17 @@ export class SiseraTelegramBuyBot {
   }
 
   /**
-   * Fetches latest enhanced transactions for $SISERA from Helius.
+   * Fetches enhanced transactions for $SISERA from Helius, newest first.
+   * Pass `beforeSignature` to page further back in history.
    */
-  async fetchRecentTransactions(limit = 20): Promise<HeliusEnhancedTx[]> {
+  async fetchRecentTransactions(
+    limit = HELIUS_PAGE_SIZE,
+    beforeSignature?: string,
+  ): Promise<HeliusEnhancedTx[]> {
     const url = new URL(`https://api.helius.xyz/v0/addresses/${this.mint}/transactions`);
     url.searchParams.set("api-key", this.options.heliusApiKey);
     url.searchParams.set("limit", String(limit));
+    if (beforeSignature) url.searchParams.set("before-signature", beforeSignature);
     const response = await this.fetcher(url, { signal: AbortSignal.timeout(8_000) });
     if (!response.ok) {
       throw new Error(`Helius transactions endpoint returned ${response.status}`);
@@ -574,22 +700,44 @@ export class SiseraTelegramBuyBot {
   }
 
   /**
-   * Sends a message or photo to the configured Telegram chat.
+   * Fetches every transaction since the last one the bot saw, paging back up to HELIUS_MAX_PAGES.
+   */
+  private async fetchUnseenTransactions(): Promise<HeliusEnhancedTx[]> {
+    const collected: HeliusEnhancedTx[] = [];
+    let before: string | undefined;
+    for (let page = 0; page < HELIUS_MAX_PAGES; page++) {
+      const txs = await this.fetchRecentTransactions(HELIUS_PAGE_SIZE, before);
+      collected.push(...txs);
+      if (txs.length < HELIUS_PAGE_SIZE || txs.some((tx) => this.seenSignatures.has(tx.signature)))
+        return collected;
+      before = txs.at(-1)?.signature;
+    }
+    this.options.logger?.warn(
+      { pages: HELIUS_MAX_PAGES, transactions: collected.length },
+      "BuyBot did not reach its last seen transaction; older transactions were skipped",
+    );
+    return collected;
+  }
+
+  /**
+   * Sends a message, or a photo with caption when `media` is set, straight to Telegram.
+   * Throws TelegramRateLimitError on 429 so the caller can wait and retry.
+   * Group alerts should go through the send queue instead (see processTransactions).
    */
   async sendTelegramAlert(
     htmlCaption: string,
-    replyMarkup: { inline_keyboard: Array<Array<{ text: string; url: string }>> },
-    media: SiseraAlertMedia,
+    replyMarkup: InlineKeyboard | undefined,
+    media: SiseraAlertMedia | null,
     targetChatId: string = this.options.chatId,
   ): Promise<void> {
     const baseUrl = `https://api.telegram.org/bot${this.options.botToken}`;
-    const mediaPath = join(this.mediaDir, `${media}.png`);
-    const cachedFileId = this.cachedPhotoFileIds.get(media);
+    const mediaPath = media ? join(this.mediaDir, `${media}.png`) : null;
+    const cachedFileId = media ? this.cachedPhotoFileIds.get(media) : undefined;
 
     // Try sending with the tier's Sisera alert card first
-    if (cachedFileId || existsSync(mediaPath)) {
+    if (media && mediaPath && (cachedFileId || existsSync(mediaPath))) {
+      let response: Response | null = null;
       try {
-        let response: Response;
         if (cachedFileId) {
           response = await this.fetcher(`${baseUrl}/sendPhoto`, {
             method: "POST",
@@ -609,7 +757,7 @@ export class SiseraTelegramBuyBot {
           form.set("chat_id", targetChatId);
           form.set("caption", htmlCaption);
           form.set("parse_mode", "HTML");
-          form.set("reply_markup", JSON.stringify(replyMarkup));
+          if (replyMarkup) form.set("reply_markup", JSON.stringify(replyMarkup));
           form.set("photo", new Blob([bytes], { type: "image/png" }), `${media}.png`);
           response = await this.fetcher(`${baseUrl}/sendPhoto`, {
             method: "POST",
@@ -617,7 +765,16 @@ export class SiseraTelegramBuyBot {
             signal: AbortSignal.timeout(10_000),
           });
         }
+      } catch (error) {
+        this.options.logger?.warn(
+          { error },
+          "BuyBot sendPhoto failed, falling back to sendMessage",
+        );
+      }
 
+      if (response) {
+        const rateLimited = await telegramRateLimit(response);
+        if (rateLimited) throw rateLimited;
         if (response.ok) {
           const payload = (await response.json()) as {
             ok?: boolean;
@@ -629,11 +786,6 @@ export class SiseraTelegramBuyBot {
         }
         // Reset cached file_id if Telegram rejected it
         this.cachedPhotoFileIds.delete(media);
-      } catch (error) {
-        this.options.logger?.warn(
-          { error },
-          "BuyBot sendPhoto failed, falling back to sendMessage",
-        );
       }
     }
 
@@ -650,6 +802,8 @@ export class SiseraTelegramBuyBot {
       signal: AbortSignal.timeout(8_000),
     });
 
+    const rateLimited = await telegramRateLimit(fallbackResponse);
+    if (rateLimited) throw rateLimited;
     if (!fallbackResponse.ok) {
       const errorText = await fallbackResponse.text().catch(() => "");
       throw new Error(`Telegram sendMessage failed (${fallbackResponse.status}): ${errorText}`);
@@ -657,15 +811,16 @@ export class SiseraTelegramBuyBot {
   }
 
   /**
-   * Evaluates a batch of Helius transactions, deduplicates by signature, and posts qualifying buys.
+   * Evaluates a batch of Helius transactions, deduplicates by signature, and queues qualifying buys.
+   * Returns the number of buy alerts queued; call flushAlerts() to wait until they are posted.
    */
   async processTransactions(transactions: HeliusEnhancedTx[]): Promise<number> {
     const unseen = transactions.filter((tx) => !this.seenSignatures.has(tx.signature));
     for (const tx of unseen) {
       this.seenSignatures.add(tx.signature);
     }
-    if (this.seenSignatures.size > 2_000) {
-      const oldest = [...this.seenSignatures].slice(0, 500);
+    if (this.seenSignatures.size > 5_000) {
+      const oldest = [...this.seenSignatures].slice(0, 1_000);
       for (const sig of oldest) this.seenSignatures.delete(sig);
     }
 
@@ -674,7 +829,7 @@ export class SiseraTelegramBuyBot {
 
     // Process from oldest to newest so group alerts appear in chronological order
     const chronological = [...unseen].reverse();
-    let alertsSent = 0;
+    const alerts: QueuedTelegramMessage[] = [];
 
     for (const tx of chronological) {
       const buy = extractSiseraBuy(tx, this.mint, this.knownPools);
@@ -684,23 +839,108 @@ export class SiseraTelegramBuyBot {
       if (usdValue < this.minUsd) continue;
 
       const holderInfo = await this.getBuyerHolderInfo(buy.buyer, buy.tokenAmount);
-      const html = formatSiseraBuyMessage(buy, snapshot, holderInfo);
-      const keyboard = buildBuyBotInlineKeyboard(buy.signature, this.mint, this.terminalUrl);
-
-      await this.sendTelegramAlert(html, keyboard, siseraBuyTier(usdValue).media);
-      alertsSent++;
-      this.options.logger?.info(
-        {
-          signature: buy.signature,
-          buyer: buy.buyer,
-          tokenAmount: buy.tokenAmount,
-          usdValue: Number(usdValue.toFixed(2)),
-        },
-        "Sent Telegram $SISERA buy alert",
-      );
+      alerts.push({
+        html: formatSiseraBuyMessage(buy, snapshot, holderInfo),
+        keyboard: buildBuyBotInlineKeyboard(buy.signature, this.mint, this.terminalUrl),
+        media: siseraBuyTier(usdValue).media,
+        chatId: this.options.chatId,
+        buy: { buy, usdValue },
+      });
     }
 
-    return alertsSent;
+    // Queue the whole batch at once so a burst from one poll is combined rather than drip-fed.
+    this.enqueue(...alerts);
+    return alerts.length;
+  }
+
+  /**
+   * Resolves once every queued Telegram message has been posted or given up on.
+   */
+  async flushAlerts(): Promise<void> {
+    while (this.draining) await this.draining;
+  }
+
+  private enqueue(...messages: QueuedTelegramMessage[]): void {
+    if (messages.length === 0) return;
+    this.sendQueue.push(...messages);
+    this.draining ??= this.drainQueue();
+  }
+
+  private async drainQueue(): Promise<void> {
+    try {
+      while (this.sendQueue.length > 0) {
+        const pendingBuys = this.sendQueue.filter((message) => message.buy).length;
+        const next =
+          pendingBuys > BACKLOG_THRESHOLD
+            ? this.collapseBuyBacklog()
+            : (this.sendQueue.shift() as QueuedTelegramMessage);
+        await this.deliver(next);
+      }
+    } finally {
+      this.draining = null;
+    }
+  }
+
+  /**
+   * Replaces every queued buy alert with one combined message, keeping commands in the queue.
+   */
+  private collapseBuyBacklog(): QueuedTelegramMessage {
+    const buys: Array<{ buy: SiseraBuyEvent; usdValue: number }> = [];
+    for (let index = this.sendQueue.length - 1; index >= 0; index--) {
+      const queued = this.sendQueue[index]?.buy;
+      if (!queued) continue;
+      buys.unshift(queued);
+      this.sendQueue.splice(index, 1);
+    }
+    this.options.logger?.info({ buys: buys.length }, "Combining queued $SISERA buy alerts");
+    return {
+      html: formatSiseraBuyBacklogMessage(buys),
+      keyboard: buildBuyBotInlineKeyboard(undefined, this.mint, this.terminalUrl),
+      media: null,
+      chatId: this.options.chatId,
+    };
+  }
+
+  /**
+   * Posts one message, spacing sends to stay under Telegram's group limit and waiting out 429s.
+   * Other failures drop only this message, so one bad send never stalls the rest of the queue.
+   */
+  private async deliver(message: QueuedTelegramMessage): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
+      const wait = this.lastSentAt + this.minSendIntervalMs - Date.now();
+      if (wait > 0) await this.sleep(wait);
+      try {
+        await this.sendTelegramAlert(message.html, message.keyboard, message.media, message.chatId);
+        this.lastSentAt = Date.now();
+        if (message.buy) {
+          this.options.logger?.info(
+            {
+              signature: message.buy.buy.signature,
+              buyer: message.buy.buy.buyer,
+              tokenAmount: message.buy.buy.tokenAmount,
+              usdValue: Number(message.buy.usdValue.toFixed(2)),
+            },
+            "Sent Telegram $SISERA buy alert",
+          );
+        }
+        return;
+      } catch (error) {
+        this.lastSentAt = Date.now();
+        if (error instanceof TelegramRateLimitError && attempt < MAX_SEND_ATTEMPTS) {
+          this.options.logger?.warn(
+            { retryAfterMs: error.retryAfterMs, attempt },
+            "Telegram rate limited the BuyBot; waiting before retrying",
+          );
+          await this.sleep(error.retryAfterMs);
+          continue;
+        }
+        this.options.logger?.error(
+          { error, signature: message.buy?.buy.signature },
+          "BuyBot failed to deliver Telegram message",
+        );
+        return;
+      }
+    }
   }
 
   /**
@@ -711,7 +951,7 @@ export class SiseraTelegramBuyBot {
     if (this.pollTimer) return;
     try {
       await this.getMarketSnapshot(true);
-      const initialTxs = await this.fetchRecentTransactions(25);
+      const initialTxs = await this.fetchRecentTransactions(HELIUS_PAGE_SIZE);
       for (const tx of initialTxs) {
         this.seenSignatures.add(tx.signature);
       }
@@ -754,64 +994,19 @@ export class SiseraTelegramBuyBot {
     if (this.pollingInFlight) return 0;
     this.pollingInFlight = true;
     try {
-      const txs = await this.fetchRecentTransactions(20);
       if (!this.initialized) {
+        const txs = await this.fetchRecentTransactions(HELIUS_PAGE_SIZE);
         for (const tx of txs) this.seenSignatures.add(tx.signature);
         this.initialized = true;
         return 0;
       }
-      return await this.processTransactions(txs);
+      return await this.processTransactions(await this.fetchUnseenTransactions());
     } catch (error) {
       this.options.logger?.warn({ error }, "Sisera Telegram BuyBot poll error");
       return 0;
     } finally {
       this.pollingInFlight = false;
     }
-  }
-
-  /**
-   * Sends a test buy alert using the latest real on-chain $SISERA buy from Helius
-   * (or a sample buy if no recent buy is found).
-   */
-  async sendLatestRealBuyPreview(): Promise<{
-    sent: boolean;
-    buy: SiseraBuyEvent;
-    html: string;
-  }> {
-    const snapshot = await this.getMarketSnapshot(true);
-    const txs = await this.fetchRecentTransactions(25);
-    let latestBuy: SiseraBuyEvent | null = null;
-    for (const tx of txs) {
-      const candidate = extractSiseraBuy(tx, this.mint, this.knownPools);
-      if (candidate) {
-        latestBuy = candidate;
-        break;
-      }
-    }
-
-    if (!latestBuy) {
-      latestBuy = {
-        signature:
-          "35jrUQxTXiU915dYDGf1s6Tj3J78QjEwYoFnma5Hiu4xmMrMLsFGrkiQQ1Xdf4i6f4i78YhtzqqJgYQKMzgmz46w",
-        timestamp: Math.floor(Date.now() / 1000),
-        buyer: "2tgUbS9UMoQD6GkDZBiqKYCURnGrSb6ocYwRABrSJUvY",
-        tokenAmount: 907_361.26,
-        solSpent: 0.2589,
-        usdcSpent: 0,
-        source: "PUMP_AMM",
-      };
-    }
-
-    const holderInfo = await this.getBuyerHolderInfo(latestBuy.buyer, latestBuy.tokenAmount);
-    const html = formatSiseraBuyMessage(latestBuy, snapshot, holderInfo);
-    const keyboard = buildBuyBotInlineKeyboard(latestBuy.signature, this.mint, this.terminalUrl);
-
-    if (this.options.botToken && this.options.chatId) {
-      const usdValue = computeBuyUsdValue(latestBuy, snapshot);
-      await this.sendTelegramAlert(html, keyboard, siseraBuyTier(usdValue).media);
-      return { sent: true, buy: latestBuy, html };
-    }
-    return { sent: false, buy: latestBuy, html };
   }
 
   private async seedTelegramUpdatesOffset(): Promise<void> {
@@ -830,7 +1025,7 @@ export class SiseraTelegramBuyBot {
     }
   }
 
-  private async pollTelegramCommands(): Promise<void> {
+  async pollTelegramCommands(): Promise<void> {
     try {
       const url = new URL(`https://api.telegram.org/bot${this.options.botToken}/getUpdates`);
       url.searchParams.set("offset", String(this.lastUpdateId));
@@ -854,20 +1049,33 @@ export class SiseraTelegramBuyBot {
         this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id + 1);
         const text = update.message?.text?.trim() ?? "";
         const chatId = update.message?.chat?.id;
-        if (!text.startsWith("/") || !chatId) continue;
+        // Only answer in the configured group, so the bot can't be used to spam other chats.
+        if (!text.startsWith("/") || String(chatId) !== this.options.chatId) continue;
 
-        const command = text.split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
-        if (
-          command === "/price" ||
-          command === "/stats" ||
-          command === "/burn" ||
-          command === "/ca"
-        ) {
-          const snapshot = await this.getMarketSnapshot();
-          const statsHtml = formatSiseraStatsMessage(snapshot, this.mint);
-          const keyboard = buildBuyBotInlineKeyboard(undefined, this.mint, this.terminalUrl);
-          await this.sendTelegramAlert(statsHtml, keyboard, "stats", String(chatId));
+        const command = text.split(/\s+/)[0]?.split("@")[0]?.toLowerCase() ?? "";
+        if (!BOT_COMMANDS.has(command)) continue;
+
+        const now = Date.now();
+        const lastAnsweredAt = this.commandLastAnsweredAt.get(command) ?? 0;
+        if (now - lastAnsweredAt < this.commandCooldownMs) continue;
+        this.commandLastAnsweredAt.set(command, now);
+
+        if (command === "/ca") {
+          this.enqueue({
+            html: `<code>${this.mint}</code>`,
+            media: null,
+            chatId: this.options.chatId,
+          });
+          continue;
         }
+
+        const snapshot = await this.getMarketSnapshot();
+        this.enqueue({
+          html: formatSiseraStatsMessage(snapshot, this.mint),
+          keyboard: buildBuyBotInlineKeyboard(undefined, this.mint, this.terminalUrl),
+          media: "stats",
+          chatId: this.options.chatId,
+        });
       }
     } catch {
       // Non-fatal command polling error
