@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { readConfig } from "./config.js";
@@ -27,7 +27,8 @@ const solanaRpcUrl =
     : "https://api.mainnet-beta.solana.com");
 
 const helius = new HeliusClient(solanaRpcUrl);
-const mediaPath = resolve(rootDir, "stickers", "01-bullish.png");
+const mediaDir = resolve(rootDir, "stickers", "alerts");
+const stickerPackDir = resolve(rootDir, "stickers", "pack");
 
 async function discoverChatIds() {
   if (!config.SISERA_TELEGRAM_BOT_TOKEN) {
@@ -88,6 +89,69 @@ async function discoverChatIds() {
   }
 }
 
+/**
+ * Publishes stickers/pack/ as a Telegram sticker set owned by the given user.
+ * The owner must have sent /start to the bot first; @userinfobot shows your numeric user id.
+ */
+async function createStickerPack() {
+  const ownerId = process.argv[3];
+  if (!config.SISERA_TELEGRAM_BOT_TOKEN || !ownerId || !/^\d+$/.test(ownerId)) {
+    console.error(
+      "[buybot] Usage: pnpm buybot:stickers <your_telegram_user_id>\n" +
+        "Needs SISERA_TELEGRAM_BOT_TOKEN in .env. Send /start to the bot first, then get your id from @userinfobot.",
+    );
+    process.exit(1);
+  }
+
+  const baseUrl = `https://api.telegram.org/bot${config.SISERA_TELEGRAM_BOT_TOKEN}`;
+  const me = (await (await fetch(`${baseUrl}/getMe`)).json()) as { result?: { username?: string } };
+  if (!me.result?.username) {
+    console.error("[buybot] Telegram getMe failed. Check your SISERA_TELEGRAM_BOT_TOKEN.");
+    process.exit(1);
+  }
+  const name = `sisera_by_${me.result.username}`;
+  const link = `https://t.me/addstickers/${name}`;
+
+  const existing = (await (await fetch(`${baseUrl}/getStickerSet?name=${name}`)).json()) as {
+    ok?: boolean;
+  };
+  if (existing.ok) {
+    console.log(`[buybot] Sticker set already exists: ${link}`);
+    return;
+  }
+
+  const manifest = JSON.parse(readFileSync(resolve(stickerPackDir, "pack.json"), "utf8")) as Array<{
+    file: string;
+    emoji: string[];
+  }>;
+  const form = new FormData();
+  form.set("user_id", ownerId);
+  form.set("name", name);
+  form.set("title", "Sisera");
+  form.set(
+    "stickers",
+    JSON.stringify(
+      manifest.map((sticker, index) => ({
+        sticker: `attach://s${index}`,
+        format: "static",
+        emoji_list: sticker.emoji,
+      })),
+    ),
+  );
+  manifest.forEach((sticker, index) => {
+    const bytes = readFileSync(resolve(stickerPackDir, sticker.file));
+    form.set(`s${index}`, new Blob([bytes], { type: "image/png" }), sticker.file);
+  });
+
+  const response = await fetch(`${baseUrl}/createNewStickerSet`, { method: "POST", body: form });
+  const result = (await response.json()) as { ok?: boolean; description?: string };
+  if (!result.ok) {
+    console.error(`[buybot] createNewStickerSet failed: ${result.description ?? response.status}`);
+    process.exit(1);
+  }
+  console.log(`[buybot] Created ${manifest.length}-sticker set: ${link}`);
+}
+
 async function runPreviewOrTest() {
   if (!config.HELIUS_API_KEY) {
     console.error(
@@ -104,7 +168,7 @@ async function runPreviewOrTest() {
     minUsd: config.SISERA_BUYBOT_MIN_USD,
     pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
     terminalUrl: config.SISERA_PUBLIC_URL,
-    mediaPath,
+    mediaDir,
     heliusClient: helius,
   });
 
@@ -166,7 +230,7 @@ async function runWatchDaemon() {
     minUsd: config.SISERA_BUYBOT_MIN_USD,
     pollIntervalMs: config.SISERA_BUYBOT_POLL_INTERVAL_MS,
     terminalUrl: config.SISERA_PUBLIC_URL,
-    mediaPath,
+    mediaDir,
     heliusClient: helius,
     logger: {
       info: (obj, msg) => console.log(`[buybot] ${msg ?? ""}`, obj),
@@ -191,6 +255,8 @@ async function runWatchDaemon() {
 
 if (mode === "chatid") {
   await discoverChatIds();
+} else if (mode === "stickers") {
+  await createStickerPack();
 } else if (mode === "test" || mode === "preview") {
   await runPreviewOrTest();
 } else {

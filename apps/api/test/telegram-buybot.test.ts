@@ -195,7 +195,7 @@ describe("Sisera Telegram BuyBot", () => {
       },
     );
 
-    expect(html).toContain("🏛️ <b>SISERA INSTITUTIONAL BUY!</b>");
+    expect(html).toContain("🚀 <b>MEGA $SISERA BUY!</b>");
     expect(html).toContain("6.4000 SOL");
     expect(html).toContain("4,000,000 SISERA");
     expect(html).toContain("54,939,544 SISERA (5.49%)");
@@ -237,7 +237,7 @@ describe("Sisera Telegram BuyBot", () => {
       chatId: "-100123456",
       heliusApiKey: "test-helius",
       minUsd: 10,
-      mediaPath: "/nonexistent/sticker.png",
+      mediaDir: "/nonexistent",
       fetcher: mockFetch as unknown as typeof fetch,
     });
 

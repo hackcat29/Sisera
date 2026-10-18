@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import type { HeliusClient } from "./helius.js";
 
@@ -268,6 +268,24 @@ export function computeBuyUsdValue(buy: SiseraBuyEvent, snapshot: SiseraMarketSn
   return 0;
 }
 
+export type SiseraAlertMedia = "buy" | "big-buy" | "mega-buy" | "whale" | "stats";
+
+/**
+ * Maps a buy's USD size to its tier; `media` names the card in stickers/alerts/.
+ */
+export function siseraBuyTier(usdValue: number): {
+  media: SiseraAlertMedia;
+  header: string;
+  orb: string;
+} {
+  if (usdValue >= 2_000)
+    return { media: "whale", header: "🐋 <b>$SISERA WHALE ALERT!</b>", orb: "🐋" };
+  if (usdValue >= 500)
+    return { media: "mega-buy", header: "🚀 <b>MEGA $SISERA BUY!</b>", orb: "🚀" };
+  if (usdValue >= 100) return { media: "big-buy", header: "⚡ <b>BIG $SISERA BUY!</b>", orb: "🟢" };
+  return { media: "buy", header: "🟢 <b>NEW $SISERA BUY!</b>", orb: "🟢" };
+}
+
 /**
  * Formats the HTML caption/message for a $SISERA buy alert in Telegram.
  */
@@ -278,20 +296,11 @@ export function formatSiseraBuyMessage(
 ): string {
   const usdValue = computeBuyUsdValue(buy, snapshot);
 
-  let tierHeader = "🟢 <b>SISERA BUY!</b>";
-  let orbEmoji = "🟢";
-  if (usdValue >= 2_000) {
-    tierHeader = "🐋 <b>SISERA WHALE ALLOCATION!</b>";
-    orbEmoji = "🏛️";
-  } else if (usdValue >= 500) {
-    tierHeader = "🏛️ <b>SISERA INSTITUTIONAL BUY!</b>";
-  } else if (usdValue >= 100) {
-    tierHeader = "⚡ <b>SISERA QUANT BUY!</b>";
-  }
+  const tier = siseraBuyTier(usdValue);
 
   // 1 orb per $10 spent (minimum 3 orbs, maximum 36 orbs)
   const orbCount = Math.max(3, Math.min(36, Math.ceil(usdValue / 10)));
-  const orbBar = orbEmoji.repeat(orbCount);
+  const orbBar = tier.orb.repeat(orbCount);
 
   const spentParts: string[] = [];
   if (buy.solSpent > 0) {
@@ -326,7 +335,7 @@ export function formatSiseraBuyMessage(
 
   const venue = formatVenueName(buy.source);
   const lines = [
-    tierHeader,
+    tier.header,
     orbBar,
     "",
     `💵 <b>Spent:</b> ${spentDisplay}`,
@@ -418,7 +427,8 @@ export interface SiseraTelegramBuyBotOptions {
   minUsd?: number;
   pollIntervalMs?: number;
   terminalUrl?: string;
-  mediaPath?: string;
+  /** Directory holding the tier cards rendered by scripts/render-stickers.mjs. */
+  mediaDir?: string;
   enableCommands?: boolean;
   heliusClient?: HeliusClient;
   fetcher?: typeof fetch;
@@ -434,12 +444,12 @@ export class SiseraTelegramBuyBot {
   private readonly minUsd: number;
   private readonly pollIntervalMs: number;
   private readonly terminalUrl: string;
-  private readonly mediaPath: string;
+  private readonly mediaDir: string;
   private readonly enableCommands: boolean;
   private readonly fetcher: typeof fetch;
   private readonly knownPools = new Set<string>([SISERA_PRIMARY_POOL]);
   private readonly seenSignatures = new Set<string>();
-  private cachedPhotoFileId: string | null = null;
+  private readonly cachedPhotoFileIds = new Map<SiseraAlertMedia, string>();
   private cachedSnapshot: { data: SiseraMarketSnapshot; fetchedAt: number } | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private commandTimer: ReturnType<typeof setInterval> | null = null;
@@ -452,7 +462,7 @@ export class SiseraTelegramBuyBot {
     this.minUsd = options.minUsd ?? 5;
     this.pollIntervalMs = options.pollIntervalMs ?? 10_000;
     this.terminalUrl = options.terminalUrl ?? "https://sisera.xyz";
-    this.mediaPath = options.mediaPath ?? resolve(process.cwd(), "stickers", "01-bullish.png");
+    this.mediaDir = options.mediaDir ?? resolve(process.cwd(), "stickers", "alerts");
     this.enableCommands = options.enableCommands ?? true;
     this.fetcher = options.fetcher ?? globalThis.fetch;
   }
@@ -569,21 +579,24 @@ export class SiseraTelegramBuyBot {
   async sendTelegramAlert(
     htmlCaption: string,
     replyMarkup: { inline_keyboard: Array<Array<{ text: string; url: string }>> },
+    media: SiseraAlertMedia,
     targetChatId: string = this.options.chatId,
   ): Promise<void> {
     const baseUrl = `https://api.telegram.org/bot${this.options.botToken}`;
+    const mediaPath = join(this.mediaDir, `${media}.png`);
+    const cachedFileId = this.cachedPhotoFileIds.get(media);
 
-    // Try sending with the official Sisera image/sticker first
-    if (this.cachedPhotoFileId || existsSync(this.mediaPath)) {
+    // Try sending with the tier's Sisera alert card first
+    if (cachedFileId || existsSync(mediaPath)) {
       try {
         let response: Response;
-        if (this.cachedPhotoFileId) {
+        if (cachedFileId) {
           response = await this.fetcher(`${baseUrl}/sendPhoto`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               chat_id: targetChatId,
-              photo: this.cachedPhotoFileId,
+              photo: cachedFileId,
               caption: htmlCaption,
               parse_mode: "HTML",
               reply_markup: replyMarkup,
@@ -591,13 +604,13 @@ export class SiseraTelegramBuyBot {
             signal: AbortSignal.timeout(8_000),
           });
         } else {
-          const bytes = await readFile(this.mediaPath);
+          const bytes = await readFile(mediaPath);
           const form = new FormData();
           form.set("chat_id", targetChatId);
           form.set("caption", htmlCaption);
           form.set("parse_mode", "HTML");
           form.set("reply_markup", JSON.stringify(replyMarkup));
-          form.set("photo", new Blob([bytes], { type: "image/png" }), basename(this.mediaPath));
+          form.set("photo", new Blob([bytes], { type: "image/png" }), `${media}.png`);
           response = await this.fetcher(`${baseUrl}/sendPhoto`, {
             method: "POST",
             body: form,
@@ -611,11 +624,11 @@ export class SiseraTelegramBuyBot {
             result?: { photo?: Array<{ file_id?: string }> };
           };
           const fileId = payload.result?.photo?.at(-1)?.file_id;
-          if (fileId) this.cachedPhotoFileId = fileId;
+          if (fileId) this.cachedPhotoFileIds.set(media, fileId);
           return;
         }
         // Reset cached file_id if Telegram rejected it
-        this.cachedPhotoFileId = null;
+        this.cachedPhotoFileIds.delete(media);
       } catch (error) {
         this.options.logger?.warn(
           { error },
@@ -674,7 +687,7 @@ export class SiseraTelegramBuyBot {
       const html = formatSiseraBuyMessage(buy, snapshot, holderInfo);
       const keyboard = buildBuyBotInlineKeyboard(buy.signature, this.mint, this.terminalUrl);
 
-      await this.sendTelegramAlert(html, keyboard);
+      await this.sendTelegramAlert(html, keyboard, siseraBuyTier(usdValue).media);
       alertsSent++;
       this.options.logger?.info(
         {
@@ -794,7 +807,8 @@ export class SiseraTelegramBuyBot {
     const keyboard = buildBuyBotInlineKeyboard(latestBuy.signature, this.mint, this.terminalUrl);
 
     if (this.options.botToken && this.options.chatId) {
-      await this.sendTelegramAlert(html, keyboard);
+      const usdValue = computeBuyUsdValue(latestBuy, snapshot);
+      await this.sendTelegramAlert(html, keyboard, siseraBuyTier(usdValue).media);
       return { sent: true, buy: latestBuy, html };
     }
     return { sent: false, buy: latestBuy, html };
@@ -852,7 +866,7 @@ export class SiseraTelegramBuyBot {
           const snapshot = await this.getMarketSnapshot();
           const statsHtml = formatSiseraStatsMessage(snapshot, this.mint);
           const keyboard = buildBuyBotInlineKeyboard(undefined, this.mint, this.terminalUrl);
-          await this.sendTelegramAlert(statsHtml, keyboard, String(chatId));
+          await this.sendTelegramAlert(statsHtml, keyboard, "stats", String(chatId));
         }
       }
     } catch {
