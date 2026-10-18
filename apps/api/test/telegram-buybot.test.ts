@@ -429,8 +429,9 @@ describe("Sisera Telegram BuyBot", () => {
     it("answers commands only in the configured chat, with a cooldown", async () => {
       const updates = [
         { update_id: 1, message: { chat: { id: -100999 }, text: "/price" } },
-        { update_id: 2, message: { chat: { id: -100123456 }, text: "/ca@sisera_bot" } },
-        { update_id: 3, message: { chat: { id: -100123456 }, text: "/ca" } },
+        { update_id: 2, message: { chat: { id: -100123456 }, text: "/ca" } },
+        { update_id: 3, message: { chat: { id: -100123456 }, text: "/price@sisera_bot" } },
+        { update_id: 4, message: { chat: { id: -100123456 }, text: "/price" } },
       ];
       const { bot, sent } = makeBot((url) =>
         url.includes("getUpdates")
@@ -442,12 +443,10 @@ describe("Sisera Telegram BuyBot", () => {
       await bot.flushAlerts();
 
       const replies = sent.filter((call) => !call.url.includes("getUpdates"));
+      // /ca is left to the group's Rose bot; the second /price falls inside the cooldown.
       expect(replies).toHaveLength(1);
-      expect(replies[0]?.url).toContain("/sendMessage");
-      expect(replies[0]?.body).toMatchObject({
-        chat_id: "-100123456",
-        text: `<code>${SISERA_MINT}</code>`,
-      });
+      expect(replies[0]?.body).toMatchObject({ chat_id: "-100123456" });
+      expect(String(replies[0]?.body.text)).toContain("LIVE MARKET SNAPSHOT");
     });
   });
 });

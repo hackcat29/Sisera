@@ -475,7 +475,8 @@ const HELIUS_MAX_PAGES = 5;
 const BACKLOG_THRESHOLD = 5;
 const MAX_SEND_ATTEMPTS = 5;
 const SOL_PRICE_TTL_MS = 60_000;
-const BOT_COMMANDS = new Set(["/price", "/stats", "/burn", "/ca"]);
+// The group's Rose bot already answers "ca", so the buybot leaves that to it.
+const BOT_COMMANDS = new Set(["/price", "/stats", "/burn"]);
 
 const JupiterPrice = z.record(z.string(), z.object({ usdPrice: z.number() }).nullable());
 
@@ -1059,15 +1060,6 @@ export class SiseraTelegramBuyBot {
         const lastAnsweredAt = this.commandLastAnsweredAt.get(command) ?? 0;
         if (now - lastAnsweredAt < this.commandCooldownMs) continue;
         this.commandLastAnsweredAt.set(command, now);
-
-        if (command === "/ca") {
-          this.enqueue({
-            html: `<code>${this.mint}</code>`,
-            media: null,
-            chatId: this.options.chatId,
-          });
-          continue;
-        }
 
         const snapshot = await this.getMarketSnapshot();
         this.enqueue({
