@@ -184,7 +184,9 @@ Open `http://localhost:3000`; the API runs on `http://localhost:4000`. `pnpm dev
 | `DATABASE_URL` | PostgreSQL for accounts, ledger, policies, agents, launches and events |
 | `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET` | Sign-in (same app ID in web and API) |
 | `HELIUS_API_KEY` / `SOLANA_RPC_URL` | Wallets, reconciliation, holder concentration, DBC and launch transactions |
-| `JUPITER_API_KEY` | Live prices, swap orders and prediction markets |
+| `JUPITER_API_KEY` | Live prices, swap orders, Swap to USDC and prediction markets |
+| `SISERA_SWAP_MAX_USD` | Largest single Swap to USDC, in USD (default `10000`) |
+| `SISERA_EVM_RPC_URLS` | Optional private RPCs for EVM swap balances, as `chainId=url` pairs (public RPCs by default) |
 | `PYTH_API_KEY`, `PYTH_HERMES_URL` | Pyth Core equity reference feeds |
 | `CLAWPUMP_API_KEY` | Clawpump partner API (pairs, agents, launches) |
 | `OPENROUTER_API_KEY`, `SISERA_INTELLIGENCE_MODEL` | Model narration for Sisera AI and research |

@@ -3,6 +3,7 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { useEffect, useState } from "react";
 import { getPrivySolanaAddress } from "../lib/privy-identity";
+import { type RelayStep, executeRelaySteps } from "../lib/relay-execute";
 import { useSiseraWallets } from "../lib/use-sisera-wallets";
 
 const chains = [
@@ -12,10 +13,7 @@ const chains = [
 ];
 type Quote = {
   requestId: string | null;
-  steps: Array<{
-    kind: string;
-    items: Array<{ from: string; to: string; data: string; value: string; chainId: number }>;
-  }>;
+  steps: RelayStep[];
   fees: Record<string, { amountUsd?: string }>;
   outputAmountUsdc: string;
   timeEstimateSeconds: number | null;
@@ -100,62 +98,17 @@ export function BridgeUsdc() {
       quote.recipient !== recipient
     )
       throw new Error("Bridge details changed. Request a fresh quote.");
-    await wallet.switchChain(origin);
-    const provider = await wallet.getEthereumProvider();
-    let accountTrackingDelayed = false;
-    for (const step of quote.steps) {
-      if (step.kind !== "transaction")
-        throw new Error("Unsupported wallet step. Request a new quote.");
-      for (const transaction of step.items) {
-        if (
-          transaction.chainId !== origin ||
-          transaction.from.toLowerCase() !== wallet.address.toLowerCase()
-        )
-          throw new Error("Quote wallet or chain does not match your connected wallet.");
-        const hash = (await provider.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: transaction.from,
-              to: transaction.to,
-              data: transaction.data,
-              value: `0x${BigInt(transaction.value).toString(16)}`,
-            },
-          ],
-        })) as string;
-        if (quote.requestId) {
-          setRequestId(quote.requestId);
-          try {
-            const recorded = await fetch("/api/bridge/submission", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ requestId: quote.requestId, sourceTxHash: hash }),
-            });
-            if (!recorded.ok) accountTrackingDelayed = true;
-          } catch {
-            accountTrackingDelayed = true;
-          }
-        }
+    const { trackingDelayed: accountTrackingDelayed } = await executeRelaySteps({
+      wallet,
+      originChainId: origin,
+      requestId: quote.requestId,
+      steps: quote.steps,
+      onProgress: setMessage,
+      onSubmitted: () => {
+        if (quote.requestId) setRequestId(quote.requestId);
         setQuote(null);
-        setMessage(`Transaction submitted: ${hash.slice(0, 12)}… Waiting for confirmation.`);
-        let confirmed = false;
-        for (let attempt = 0; attempt < 45; attempt++) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          const receipt = (await provider.request({
-            method: "eth_getTransactionReceipt",
-            params: [hash],
-          })) as { status?: string } | null;
-          if (!receipt) continue;
-          if (receipt.status !== "0x1") throw new Error("The source chain transaction failed.");
-          confirmed = true;
-          break;
-        }
-        if (!confirmed)
-          throw new Error(
-            `Source transaction ${hash} is pending. Check Activity or your wallet before trying again.`,
-          );
-      }
-    }
+      },
+    });
     setMessage(
       accountTrackingDelayed
         ? "Source transaction confirmed. Relay is delivering USDC. Account history may take time to update; refresh the bridge status before retrying."

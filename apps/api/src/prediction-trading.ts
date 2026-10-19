@@ -58,7 +58,9 @@ export class PredictionTradingService {
       this.helius.getSolLamports(input.wallet),
     ]);
     if (BigInt(usdc.rawBalance) < deposit)
-      throw new TradeRejection("Your wallet has insufficient USDC.");
+      throw new TradeRejection(
+        "Your wallet has insufficient USDC. Swap a token to USDC from your Portfolio first.",
+      );
     if (BigInt(solLamports) < 1_000_000n)
       throw new TradeRejection("Add a little SOL for network fees.");
     const prepared = await this.panta.prepare({
