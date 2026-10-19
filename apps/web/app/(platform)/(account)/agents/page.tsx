@@ -100,6 +100,7 @@ export default async function AgentsPage({
                   </p>
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <Link
+                      prefetch={false}
                       href={`/agents?template=${encodeURIComponent(agent.id)}#builder`}
                       className="bg-bronze-300 px-3 py-1.5 text-[12px] font-semibold text-ink hover:bg-bronze-200"
                     >
@@ -130,6 +131,7 @@ export default async function AgentsPage({
                   <article key={agent.id} className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <Link
+                        prefetch={false}
                         href={`/agents/${encodeURIComponent(agent.id)}`}
                         className="text-xs font-semibold text-white hover:text-bronze-200"
                       >

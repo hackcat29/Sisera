@@ -161,6 +161,7 @@ export function PublicStockScreener({ stocks }: { stocks: PublicStock[] }) {
                   >
                     <td className="px-5 py-2.5">
                       <Link
+                        prefetch={false}
                         href={href}
                         className="block"
                         onClick={(event) => event.stopPropagation()}

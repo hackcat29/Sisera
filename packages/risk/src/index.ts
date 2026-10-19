@@ -163,7 +163,7 @@ export function evaluateMandate(
       "Gross exposure",
       input.grossExposureUsd,
       limits.maxGrossExposureUsd,
-      `$${input.grossExposureUsd.toFixed(0)} of $${limits.maxGrossExposureUsd.toFixed(0)}`,
+      `$${Math.round(input.grossExposureUsd).toLocaleString("en-US")} of $${Math.round(limits.maxGrossExposureUsd).toLocaleString("en-US")}`,
     ),
     row(
       "position",
@@ -184,7 +184,7 @@ export function evaluateMandate(
       "Daily loss",
       Math.max(0, -input.dailyPnlUsd),
       limits.maxDailyLossUsd,
-      `P&L today $${input.dailyPnlUsd.toFixed(2)}`,
+      `P&L today ${input.dailyPnlUsd < 0 ? "−" : ""}$${Math.abs(input.dailyPnlUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     ),
     row(
       "agent_tokens",

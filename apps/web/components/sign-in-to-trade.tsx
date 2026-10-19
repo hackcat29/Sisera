@@ -11,10 +11,14 @@ export function SignInToTrade({ label, returnTo }: { label: string; returnTo: st
         </span>
         <div>
           <p className="text-sm font-semibold text-bone">Trade {label}</p>
-          <p className="text-[12px] text-slate-400">Free to use. Sign in to place orders.</p>
+          <p className="text-[12px] text-slate-400">Free to use.</p>
         </div>
       </div>
-      <p className="mt-4 text-[13px] leading-6 text-slate-300">Sign in to trade.</p>
+      <ul className="mt-4 space-y-1.5 text-[12px] leading-5 text-slate-300">
+        <li>Sign in with email, Google or a wallet. Your wallet is ready in seconds.</li>
+        <li>Fund it with any token; Sisera converts it to USDC for trading.</li>
+        <li>You keep custody. Every order is risk-checked before it is placed.</li>
+      </ul>
       <Link
         href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}
         className="mt-5 flex items-center justify-center gap-2 bg-bronze-300 px-4 py-3 text-sm font-semibold text-ink hover:bg-bronze-200"

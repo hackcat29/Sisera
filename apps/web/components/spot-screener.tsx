@@ -116,7 +116,7 @@ export function SpotScreener({ markets }: { markets: SpotMarket[] }) {
                   className="cursor-pointer border-b border-line/60 last:border-0 hover:bg-white/[.03]"
                 >
                   <td className="px-5 py-2.5">
-                    <Link href={href} onClick={(event) => event.stopPropagation()}>
+                    <Link prefetch={false} href={href} onClick={(event) => event.stopPropagation()}>
                       <span className="font-semibold text-bone">{market.base}</span>
                       <span className="text-slate-400"> / USDT</span>
                     </Link>

@@ -6,6 +6,7 @@ import { EmptyState } from "../../../components/empty-state";
 import { LiveTokenPrice } from "../../../components/live-price";
 import { PageHeader } from "../../../components/page-header";
 import { AgentMarketPanels } from "../../../components/platform/agent-market-panels";
+import { TokenAvatar } from "../../../components/token-avatar";
 import { getAgentTokens } from "../../../lib/api";
 
 export const metadata: Metadata = {
@@ -89,6 +90,7 @@ export default async function AgentMarkets({
           <div className="flex border border-line">
             {sorts.map((option) => (
               <Link
+                prefetch={false}
                 key={option.id}
                 href={link({ sort: option.id, page: 0 })}
                 className={`px-3 py-2 text-xs ${sort === option.id ? "bg-bronze-300 text-ink" : "text-slate-300 hover:text-bone"}`}
@@ -125,22 +127,10 @@ export default async function AgentMarkets({
                     >
                       <td className="px-5 py-2.5">
                         <div className="flex items-center gap-3">
-                          {token.imageUrl ? (
-                            <img
-                              src={token.imageUrl}
-                              alt=""
-                              width={28}
-                              height={28}
-                              className="size-7 rounded-full bg-ink object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <span className="grid size-7 place-items-center rounded-full bg-ink text-[10px] text-slate-400">
-                              {token.symbol.slice(0, 2)}
-                            </span>
-                          )}
+                          <TokenAvatar src={token.imageUrl} symbol={token.symbol} />
                           <div className="min-w-0">
                             <Link
+                              prefetch={false}
                               href={`/clawpump/${token.mint}`}
                               className="flex items-center gap-1.5 font-semibold text-bone hover:text-bronze-200"
                             >

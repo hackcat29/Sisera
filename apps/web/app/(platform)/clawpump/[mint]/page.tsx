@@ -7,6 +7,7 @@ import { AssetEventFeed } from "../../../../components/platform/event-feed";
 import { ImpactWidget } from "../../../../components/platform/impact-widget";
 import { SignInToTrade } from "../../../../components/sign-in-to-trade";
 import { StockTradeTicket } from "../../../../components/stock-trade-ticket";
+import { TokenAvatar } from "../../../../components/token-avatar";
 import { TradingChart } from "../../../../components/trading-chart";
 import { getAgentTokenDetail, getSolanaTokenHistory } from "../../../../lib/api";
 import { pct, usd } from "../../../../lib/platform";
@@ -51,21 +52,18 @@ export default async function AgentTokenPage({ params }: { params: Promise<{ min
     <div className="min-h-full bg-ink">
       <div className="border-b border-line px-4 py-5 md:px-6">
         <p className="data-label text-bronze-300">
-          <Link href="/clawpump" className="hover:underline">
+          <Link prefetch={false} href="/clawpump" className="hover:underline">
             Agent markets
           </Link>{" "}
           / {asset.symbol}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          {asset.imageUrl && (
-            <img
-              src={asset.imageUrl}
-              alt=""
-              width={36}
-              height={36}
-              className="size-9 border border-line object-cover"
-            />
-          )}
+          <TokenAvatar
+            src={asset.imageUrl}
+            symbol={asset.symbol}
+            size={36}
+            className="border border-line"
+          />
           <h1 className="display text-[26px] text-bone">
             {asset.name} <span className="font-mono text-base text-slate-400">{asset.symbol}</span>
           </h1>

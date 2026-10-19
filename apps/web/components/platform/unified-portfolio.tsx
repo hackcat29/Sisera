@@ -284,6 +284,7 @@ export function UnifiedPortfolio() {
                       <td className="px-4 py-2.5 text-[11px] text-slate-400">
                         {position.book.startsWith("agent:") ? (
                           <Link
+                            prefetch={false}
                             href={`/agents/${encodeURIComponent(position.book.slice(6))}`}
                             className="text-bronze-200 hover:underline"
                           >
@@ -395,6 +396,7 @@ export function UnifiedPortfolio() {
                       className="flex items-center justify-between border-b border-line/60 px-4 py-2.5 text-xs last:border-0"
                     >
                       <Link
+                        prefetch={false}
                         href={`/agents/${encodeURIComponent(agent.agentId)}`}
                         className="text-bone hover:text-bronze-200"
                       >

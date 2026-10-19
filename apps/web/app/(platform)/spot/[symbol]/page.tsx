@@ -123,13 +123,9 @@ export default async function SpotMarketPage({ params }: { params: Promise<{ sym
           <section className="border border-line bg-panel">
             {signedIn ? (
               <MarketOrderTicket
-                venue="binance"
                 bid={market?.snapshot.bid}
                 ask={market?.snapshot.ask}
                 symbol={symbol}
-                quoteAsset="USDT"
-                quoteObservedAt={market?.snapshot.quality.observedAt}
-                quoteStatus={market?.snapshot.quality.status}
               />
             ) : (
               <SignInToTrade label={symbol} returnTo={`/spot/${encodeURIComponent(symbol)}`} />
@@ -138,31 +134,14 @@ export default async function SpotMarketPage({ params }: { params: Promise<{ sym
           <section className="border border-line bg-panel p-4">
             <h2 className="text-sm font-semibold text-white">Spot order book</h2>
             {depth ? (
-              <div className="mt-4 space-y-2 font-mono text-xs">
-                <div className="flex justify-between text-slate-500">
-                  <span>Bid · USDT</span>
-                  <span>Ask · USDT</span>
-                </div>
-                {Array.from(
-                  { length: Math.min(10, depth.bids.length, depth.asks.length) },
-                  (_, index) => (
-                    <div
-                      key={`${depth.bids[index]?.price}-${depth.asks[index]?.price}`}
-                      className="flex justify-between border-t border-line pt-2"
-                    >
-                      <span className="text-emerald-300">{depth.bids[index]?.price}</span>
-                      <span className="text-rose-300">{depth.asks[index]?.price}</span>
-                    </div>
-                  ),
-                )}
-                <p className="pt-2 text-[10px] text-slate-500">
-                  Updated {new Date(depth.quality.receivedAt).toLocaleTimeString()}
-                </p>
-              </div>
+              <SpotDepth
+                bids={depth.bids}
+                asks={depth.asks}
+                receivedAt={depth.quality.receivedAt}
+              />
             ) : (
               <p className="mt-4 text-xs leading-5 text-slate-400">
-                Live bids and asks will appear here when the market connection resumes. Trading
-                stays paused without a current quote.
+                Bids and asks are reconnecting. Live orders still use a fresh quote from Binance.
               </p>
             )}
           </section>
@@ -257,6 +236,68 @@ export default async function SpotMarketPage({ params }: { params: Promise<{ sym
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+type Level = { price: string; quantity: string };
+
+function formatLevelPrice(value: number) {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: value >= 1000 ? 2 : value >= 1 ? 2 : 4,
+    maximumFractionDigits: value >= 1000 ? 2 : value >= 1 ? 4 : 8,
+  });
+}
+
+/** Ten levels each side, asks above bids, with size bars scaled to the largest level shown. */
+function SpotDepth({
+  bids,
+  asks,
+  receivedAt,
+}: { bids: Level[]; asks: Level[]; receivedAt: string }) {
+  const topAsks = asks.slice(0, 10).reverse();
+  const topBids = bids.slice(0, 10);
+  const largest = Math.max(
+    1e-12,
+    ...[...topAsks, ...topBids].map((level) => Number(level.quantity)),
+  );
+  const bestAsk = Number(asks[0]?.price);
+  const bestBid = Number(bids[0]?.price);
+  const spread = bestAsk - bestBid;
+  const row = (level: Level, side: "bid" | "ask") => (
+    <div key={`${side}-${level.price}`} className="relative grid h-6 grid-cols-2 items-center px-1">
+      <span className={`relative z-10 ${side === "bid" ? "text-emerald-300" : "text-rose-300"}`}>
+        {formatLevelPrice(Number(level.price))}
+      </span>
+      <span className="relative z-10 text-right text-slate-300">
+        {Number(level.quantity).toLocaleString("en-US", { maximumFractionDigits: 5 })}
+      </span>
+      <span
+        className={`absolute inset-y-0.5 right-0 ${side === "bid" ? "bg-emerald-400/[0.09]" : "bg-rose-400/[0.09]"}`}
+        style={{ width: `${(Number(level.quantity) / largest) * 100}%` }}
+      />
+    </div>
+  );
+  return (
+    <div className="mt-3 font-mono text-[11px]">
+      <div className="grid grid-cols-2 px-1 pb-1 text-[10px] text-slate-500">
+        <span>Price · USDT</span>
+        <span className="text-right">Size</span>
+      </div>
+      {topAsks.map((level) => row(level, "ask"))}
+      <div className="my-1 flex justify-between border-y border-line px-1 py-1.5 text-slate-400">
+        <span>Spread</span>
+        <span>
+          {Number.isFinite(spread) ? formatLevelPrice(spread) : "—"}
+          {Number.isFinite(spread) && bestBid > 0
+            ? ` · ${((spread / bestBid) * 10_000).toFixed(1)} bps`
+            : ""}
+        </span>
+      </div>
+      {topBids.map((level) => row(level, "bid"))}
+      <p className="pt-2 text-[10px] text-slate-500">
+        Updated {new Date(receivedAt).toLocaleTimeString()}
+      </p>
     </div>
   );
 }

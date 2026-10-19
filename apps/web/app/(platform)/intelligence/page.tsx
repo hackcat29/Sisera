@@ -114,12 +114,17 @@ export default async function IntelligencePage() {
         actions={
           <div className="flex items-center gap-3">
             <Link
+              prefetch={false}
               href="/copilot"
               className="border border-bronze-300 bg-bronze-300 px-3 py-2 text-xs font-semibold text-ink hover:bg-bronze-200"
             >
               Ask Sisera AI
             </Link>
-            <Link href="/agents" className="inline-flex items-center gap-1 text-xs text-bronze-300">
+            <Link
+              prefetch={false}
+              href="/agents"
+              className="inline-flex items-center gap-1 text-xs text-bronze-300"
+            >
               Explore strategies <ArrowUpRight size={13} />
             </Link>
           </div>
@@ -174,6 +179,7 @@ export default async function IntelligencePage() {
             <div className="grid gap-px bg-line md:grid-cols-2 xl:grid-cols-5">
               {publicDivergences.map(({ stock, reference, premiumPct }) => (
                 <Link
+                  prefetch={false}
                   key={stock.mint}
                   href={`/stocks/${encodeURIComponent(stock.symbol)}`}
                   className="bg-panel p-4 hover:bg-white/[.025]"
@@ -195,7 +201,11 @@ export default async function IntelligencePage() {
               <p className="text-sm text-slate-300">
                 Explore the most active stocks while the underlying share market updates.
               </p>
-              <Link href="/stocks" className="mt-3 inline-block text-xs text-bronze-300">
+              <Link
+                prefetch={false}
+                href="/stocks"
+                className="mt-3 inline-block text-xs text-bronze-300"
+              >
                 Browse stocks →
               </Link>
             </div>
@@ -216,6 +226,7 @@ export default async function IntelligencePage() {
             <div className="divide-y divide-line">
               {movers.map((stock) => (
                 <Link
+                  prefetch={false}
                   key={stock.mint}
                   href={`/stocks/${encodeURIComponent(stock.symbol)}`}
                   className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-white/[.025]"
@@ -239,7 +250,11 @@ export default async function IntelligencePage() {
               <p className="text-sm text-slate-300">
                 Find the companies and token markets on your radar.
               </p>
-              <Link href="/stocks" className="mt-3 inline-block text-xs text-bronze-300">
+              <Link
+                prefetch={false}
+                href="/stocks"
+                className="mt-3 inline-block text-xs text-bronze-300"
+              >
                 Explore public stocks →
               </Link>
             </div>
@@ -266,6 +281,7 @@ export default async function IntelligencePage() {
             <div className="divide-y divide-line">
               {divergences.map((asset) => (
                 <Link
+                  prefetch={false}
                   key={asset.instrument.id}
                   href={`/private-markets/${encodeURIComponent(asset.instrument.baseAsset)}`}
                   className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-white/[.025]"

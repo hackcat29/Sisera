@@ -343,8 +343,12 @@ export function OperatorShell({
           <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
             {current ? (
               <>
-                <span className="hidden text-slate-400 sm:inline">{current.group}</span>
-                <span className="hidden text-slate-500 sm:inline">/</span>
+                {current.group !== current.label && (
+                  <>
+                    <span className="hidden text-slate-400 sm:inline">{current.group}</span>
+                    <span className="hidden text-slate-500 sm:inline">/</span>
+                  </>
+                )}
                 {detail ? (
                   <>
                     <Link href={current.href} className="truncate text-slate-300 hover:text-white">
@@ -363,7 +367,10 @@ export function OperatorShell({
                   "Terminal"}
               </span>
             )}
-            <MarketSession />
+            {/* US trading hours only matter for tokenized stocks; crypto trades around the clock. */}
+            {(pathname.startsWith("/stocks") || pathname.startsWith("/private-markets")) && (
+              <MarketSession />
+            )}
           </nav>
           <div className="flex items-center gap-2">
             <button

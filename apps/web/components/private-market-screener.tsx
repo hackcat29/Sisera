@@ -116,7 +116,11 @@ export function PrivateMarketScreener({ markets }: { markets: PreStock[] }) {
                     className="cursor-pointer border-b border-line/70 last:border-0 hover:bg-white/[.03]"
                   >
                     <td className="px-4 py-3">
-                      <Link href={href} onClick={(event) => event.stopPropagation()}>
+                      <Link
+                        prefetch={false}
+                        href={href}
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <span className="font-semibold text-bone">
                           {market.company.replace(/ PreStocks$/, "")}
                         </span>

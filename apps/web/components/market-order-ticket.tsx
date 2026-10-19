@@ -1,101 +1,93 @@
 "use client";
 
 import { usePrivy } from "@privy-io/react-auth";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useSiseraWallets } from "../lib/use-sisera-wallets";
+import { toast } from "sonner";
+import { useSpotTick } from "../lib/market-streams";
 import { useLiveCapability } from "./use-live-capability";
 
+const usd = (value: number) =>
+  `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const priceText = (value: number) =>
+  value.toLocaleString("en-US", { maximumFractionDigits: value >= 1000 ? 2 : value >= 1 ? 4 : 8 });
+
+/**
+ * Order entry for Binance USDT spot pairs, sized in USDT by default. Live orders use the trader's
+ * own Binance API key, which stays in this page's memory and is sent only with the order.
+ */
 export function MarketOrderTicket({
-  venue,
   bid,
   ask,
   symbol,
-  quoteAsset,
-  quoteObservedAt,
-  quoteStatus,
 }: {
-  venue: "binance" | "hyperliquid";
   bid: string | undefined;
   ask: string | undefined;
   symbol: string;
-  quoteAsset: string;
-  quoteObservedAt: string | undefined;
-  quoteStatus: "live" | "delayed" | "stale" | "degraded" | "unavailable" | undefined;
 }) {
   const { authenticated } = usePrivy();
-  const { evm: wallet } = useSiseraWallets();
-  const [mode, setMode] = useState<"paper" | "live">("live");
+  const liveAvailable = useLiveCapability("binance");
+  const tick = useSpotTick(symbol);
+  const base = symbol.replace(/USDT$/, "");
+  const [modeChoice, setModeChoice] = useState<"live" | "paper" | null>(null);
+  const mode = modeChoice ?? (liveAvailable ? "live" : "paper");
+  const live = mode === "live";
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [quantity, setQuantity] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const liveAvailable = useLiveCapability(venue);
+  const [unit, setUnit] = useState<"usdt" | "base">("usdt");
+  const [amount, setAmount] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
-  const price = side === "buy" ? ask : bid;
-  const notional = useMemo(() => Number(quantity) * Number(price), [quantity, price]);
-  const validQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0;
-  const formattedPrice =
-    price && Number.isFinite(Number(price))
-      ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 }).format(Number(price))
-      : "—";
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-  async function submitPaper() {
-    const response = await fetch("/api/market-trade", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "paper", venue, symbol, side, quantity }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message ?? "Paper order rejected.");
-    setMessage(
-      `Paper ${side} filled: ${quantity} ${symbol} at ${payload.data.fillPrice} ${quoteAsset}.`,
-    );
-    setQuantity("");
-  }
-
-  async function submitBinance() {
-    if (!apiKey || !apiSecret) throw new Error("Enter a Binance trading API key and secret.");
-    const response = await fetch("/api/market-trade", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mode: "live",
-        venue: "binance",
-        symbol,
-        side,
-        quantity,
-        apiKey,
-        apiSecret,
-      }),
-    });
-    const payload = await response.json();
-    if (!response.ok)
-      throw new Error(
-        payload.message ?? "Binance order could not be confirmed. Check Binance before retrying.",
-      );
-    setMessage(
-      `Binance ${payload.data.status.toLowerCase()}: ${payload.data.executedQty} ${symbol} · order ${payload.data.orderId}.`,
-    );
-    setQuantity("");
-  }
-
-  async function submitHyperliquid() {
-    throw new Error(
-      "Hyperliquid live trading is paused until server-side risk and order reconciliation are available.",
-    );
-  }
+  // The streamed last trade keeps the estimate current between server quotes.
+  const quoted = side === "buy" ? ask : bid;
+  const price = tick?.last ?? (quoted ? Number(quoted) : null);
+  const value = Number(amount);
+  const preview = useMemo(() => {
+    if (!price || !(value > 0)) return null;
+    return unit === "usdt"
+      ? { usdt: value, base: value / price }
+      : { usdt: value * price, base: value };
+  }, [price, value, unit]);
+  const outOfRange = live && preview != null && (preview.usdt < 10 || preview.usdt > 2500);
 
   async function submit() {
     setBusy(true);
     setMessage(null);
     try {
-      if (mode === "live" && !liveAvailable)
-        throw new Error("Live trading is currently paused for this venue.");
-      if (mode === "paper") await submitPaper();
-      else if (venue === "hyperliquid") await submitHyperliquid();
-      else await submitBinance();
+      if (!preview || !price) throw new Error("Enter an amount.");
+      const body: Record<string, unknown> = {
+        mode,
+        venue: "binance",
+        symbol,
+        side,
+        ...(unit === "usdt" && live
+          ? { quoteAmount: preview.usdt.toFixed(2) }
+          : { quantity: preview.base.toFixed(8).replace(/\.?0+$/, "") }),
+        ...(live ? { apiKey, apiSecret } : {}),
+      };
+      const response = await fetch("/api/market-trade", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(
+          payload.message ?? "The order could not be placed. Check it and try again.",
+        );
+      const data = payload.data;
+      if (live)
+        toast.success(
+          `${side === "buy" ? "Bought" : "Sold"} ${data.executedQty} ${base}${data.averagePrice ? ` at $${priceText(Number(data.averagePrice))}` : ""}`,
+          { description: `Binance order ${data.orderId}` },
+        );
+      else
+        toast.success(`Practice ${side} filled: ${data.quantity} ${base}`, {
+          description: `at $${priceText(Number(data.fillPrice))} · practice account`,
+        });
+      setAmount("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Order failed.");
     } finally {
@@ -106,161 +98,140 @@ export function MarketOrderTicket({
   return (
     <div className="flex h-full flex-col bg-panel">
       <div className="flex h-12 items-center justify-between border-b border-line px-4">
-        <span className="text-sm font-semibold text-slate-100">Order ticket</span>
-        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-bronze-300">
-          <ShieldCheck size={13} /> {mode}
-        </span>
-      </div>
-      <div className="flex-1 space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-1 rounded border border-line p-1">
+        <span className="text-sm font-semibold text-slate-100">Trade {base}</span>
+        <div className="grid grid-cols-2 gap-0.5 rounded border border-line p-0.5 text-[11px]">
           {(["live", "paper"] as const).map((option) => (
             <button
               key={option}
               type="button"
               disabled={option === "live" && !liveAvailable}
               onClick={() => {
-                setMode(option);
+                setModeChoice(option);
                 setMessage(null);
               }}
-              className={`rounded py-2 text-xs font-semibold disabled:cursor-not-allowed ${mode === option ? "bg-bronze-400/15 text-bronze-300" : "text-slate-500"}`}
+              className={`rounded px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${mode === option ? "bg-bronze-400/15 text-bronze-300" : "text-slate-500"}`}
             >
-              {option === "paper" ? "Paper" : "Live"}
+              {option === "live" ? "Live" : "Practice"}
             </button>
           ))}
         </div>
-        {!liveAvailable && (
-          <p className="text-[11px] text-amber-300">
-            Live orders are unavailable here. You can still practice a trade.
-          </p>
-        )}
+      </div>
+      <div className="flex-1 space-y-4 p-4 text-xs">
         <div className="grid grid-cols-2 gap-1 rounded border border-line p-1">
           {(["buy", "sell"] as const).map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => setSide(option)}
-              className={`rounded py-2 text-xs font-semibold ${side === option ? (option === "buy" ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300") : "text-slate-500"}`}
+              className={`rounded py-2 font-semibold ${side === option ? (option === "buy" ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300") : "text-slate-500"}`}
             >
-              {option === "buy"
-                ? venue === "hyperliquid"
-                  ? "Buy / Long"
-                  : "Buy"
-                : venue === "hyperliquid"
-                  ? "Sell / Short"
-                  : "Sell"}
+              {option === "buy" ? "Buy" : "Sell"}
             </button>
           ))}
         </div>
+
         <label className="block">
-          <span className="data-label">Quantity · {symbol.replace(/USDT$/, "")}</span>
+          <span className="flex items-center justify-between">
+            <span className="data-label">Amount</span>
+            <span className="grid grid-cols-2 gap-0.5 rounded border border-line p-0.5 text-[10px]">
+              {(["usdt", "base"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setUnit(option);
+                    setAmount("");
+                  }}
+                  className={`rounded px-1.5 py-0.5 ${unit === option ? "bg-slate-700/60 text-slate-100" : "text-slate-500"}`}
+                >
+                  {option === "usdt" ? "USDT" : base}
+                </button>
+              ))}
+            </span>
+          </span>
           <input
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
+            value={amount}
+            onChange={(event) => setAmount(event.target.value.trim())}
             inputMode="decimal"
-            placeholder="0.00000"
+            placeholder="0.00"
             className="mt-2 h-11 w-full rounded border border-line bg-ink-raised px-3 text-right font-mono text-sm text-white"
           />
         </label>
-        <div className="divide-y divide-line border-y border-line text-xs">
-          <div className="flex justify-between py-3">
-            <span className="text-slate-400">Indicative {side === "buy" ? "ask" : "bid"}</span>
-            <span>
-              {formattedPrice} {quoteAsset}
-            </span>
-          </div>
-          <div className="flex justify-between py-3">
-            <span className="text-slate-400">Estimated notional</span>
-            <span>
-              {Number.isFinite(notional) && notional > 0 ? `$${notional.toFixed(2)}` : "—"}
-            </span>
-          </div>
-        </div>
-        <p className="text-[11px] leading-5 text-slate-500">
-          {quoteObservedAt
-            ? `${quoteStatus ?? "Observed"} quote captured ${new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC", hourCycle: "h23" }).format(new Date(quoteObservedAt))} UTC.`
-            : "No quote available in this view."}{" "}
-          A fresh venue quote is checked when you submit.
-        </p>
-        {mode === "live" && venue === "hyperliquid" && (
-          <div className="space-y-2 border border-bronze-400/20 bg-bronze-400/[0.04] p-3 text-xs text-slate-300">
-            <p>
-              EVM wallet:{" "}
-              <span className="font-mono text-bronze-300">
-                {wallet?.address ?? "Not connected"}
-              </span>
+
+        <dl className="divide-y divide-line border-y border-line">
+          {[
+            ["Market price", price ? `$${priceText(price)}` : "—"],
+            [
+              unit === "usdt" ? `You ${side === "buy" ? "receive" : "sell"} ≈` : "Order value ≈",
+              preview
+                ? unit === "usdt"
+                  ? `${preview.base.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${base}`
+                  : usd(preview.usdt)
+                : "—",
+            ],
+            ["Est. fee", preview ? usd(preview.usdt * 0.001) : "—"],
+          ].map(([label, text]) => (
+            <div key={label} className="flex justify-between gap-3 py-2">
+              <dt className="text-slate-400">{label}</dt>
+              <dd className="font-mono text-slate-200">{text}</dd>
+            </div>
+          ))}
+        </dl>
+
+        {live && (
+          <div className="space-y-2 rounded border border-line bg-ink-raised/60 p-3">
+            <p className="flex items-center gap-2 font-semibold text-slate-200">
+              <KeyRound size={13} className="text-bronze-300" /> Connect Binance
             </p>
-            {!wallet && authenticated && (
-              <p className="text-slate-400">Setting up your EVM wallet…</p>
-            )}
-            <p>
-              USDC must be deposited into the HyperCore trading balance. A HyperEVM token balance
-              alone cannot margin a perpetual position.
+            <p className="leading-5 text-slate-400">
+              Live spot orders use your own Binance account. Create a trading-only API key with
+              withdrawals off. It stays in this page and is never stored.
             </p>
-            <a
-              href="https://app.hyperliquid.xyz/trade"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-bronze-300"
-            >
-              Open Hyperliquid deposit ↗
-            </a>
+            <input
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value.trim())}
+              type="password"
+              autoComplete="off"
+              placeholder="API key"
+              aria-label="Binance API key"
+              className="h-9 w-full rounded border border-line bg-ink-raised px-2 text-white"
+            />
+            <input
+              value={apiSecret}
+              onChange={(event) => setApiSecret(event.target.value.trim())}
+              type="password"
+              autoComplete="off"
+              placeholder="API secret"
+              aria-label="Binance API secret"
+              className="h-9 w-full rounded border border-line bg-ink-raised px-2 text-white"
+            />
           </div>
         )}
-        {mode === "live" && venue === "binance" && (
-          <div className="space-y-3 border border-bronze-400/20 bg-bronze-400/[0.04] p-3 text-xs text-slate-300">
-            <p>
-              Binance HMAC trading credentials. They stay in this page's memory and are sent only
-              for the order request.
-            </p>
-            <label className="block">
-              API key
-              <input
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                type="password"
-                autoComplete="off"
-                className="mt-1 h-9 w-full rounded border border-line bg-ink-raised px-2 text-white"
-              />
-            </label>
-            <label className="block">
-              API secret
-              <input
-                value={apiSecret}
-                onChange={(event) => setApiSecret(event.target.value)}
-                type="password"
-                autoComplete="off"
-                className="mt-1 h-9 w-full rounded border border-line bg-ink-raised px-2 text-white"
-              />
-            </label>
-            <p>
-              Use a trading-only key with withdrawals disabled. Orders are capped at $2,500 and 20%
-              of free balance.
-            </p>
-          </div>
+
+        {outOfRange && (
+          <p className="text-amber-200">Live orders must be between $10 and $2,500.</p>
         )}
         <button
           type="button"
           onClick={() => void submit()}
           disabled={
             busy ||
-            !validQuantity ||
-            (mode === "live" && !liveAvailable) ||
-            (mode === "live" &&
-              (venue === "binance" ? !authenticated || !apiKey || !apiSecret : !wallet))
+            !preview ||
+            outOfRange ||
+            (live && (!liveAvailable || !authenticated || !apiKey || !apiSecret))
           }
-          className="h-11 w-full rounded border border-bronze-400/40 bg-bronze-400/10 text-xs font-semibold text-bronze-200 disabled:cursor-not-allowed disabled:border-line disabled:bg-slate-800 disabled:text-slate-500"
+          className={`h-11 w-full rounded font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${side === "buy" ? "bg-emerald-400 text-[#06231a] hover:bg-emerald-300" : "bg-rose-400 text-[#2a0a10] hover:bg-rose-300"}`}
         >
           {busy
-            ? "Submitting…"
-            : mode === "paper"
-              ? "Place paper market order"
-              : "Place live market order"}
+            ? "Placing order…"
+            : `${live ? "" : "Practice "}${side === "buy" ? "Buy" : "Sell"} ${base}${preview ? ` · ${usd(preview.usdt)}` : ""}`}
         </button>
-        {message && <output className="block text-xs leading-5 text-slate-300">{message}</output>}
-        <p className="text-[11px] leading-5 text-slate-500">
-          {venue === "binance"
-            ? "Practice trades use the latest available price. Live orders require your Binance trading key and a fresh quote."
-            : "Practice trades use the latest available price. Live perpetual orders are currently unavailable."}
+        {message && <output className="block leading-5 text-amber-200">{message}</output>}
+        <p className="flex items-start gap-1.5 text-[10px] leading-4 text-slate-500">
+          <ShieldCheck size={12} className="mt-0.5 shrink-0" />
+          {live
+            ? "Market order on your Binance account at the best available price."
+            : "Practice orders fill at the live price in your practice account. No funds are used."}
         </p>
       </div>
     </div>

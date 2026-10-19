@@ -15,6 +15,14 @@ const Environment = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
+  SISERA_LIVE_HYPERLIQUID_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  /** Highest leverage Sisera allows on a perpetual order, and on the account as a whole. */
+  SISERA_PERP_MAX_LEVERAGE: z.coerce.number().int().min(1).max(50).default(20),
+  /** Largest position size a single perpetual order may open, in USD. */
+  SISERA_PERP_MAX_NOTIONAL_USD: z.coerce.number().positive().max(10_000_000).default(25_000),
   SISERA_LIVE_BINANCE_ENABLED: z
     .enum(["true", "false"])
     .default("true")

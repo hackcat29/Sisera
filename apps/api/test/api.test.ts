@@ -30,6 +30,7 @@ describe("control plane API", () => {
         SISERA_LIVE_SOLANA_ENABLED: "false",
         SISERA_LIVE_PREDICTIONS_ENABLED: "false",
         SISERA_LIVE_BINANCE_ENABLED: "false",
+        SISERA_LIVE_HYPERLIQUID_ENABLED: "false",
       }),
       { readinessProbe: async () => false },
     );

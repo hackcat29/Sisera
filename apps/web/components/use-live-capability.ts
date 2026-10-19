@@ -10,7 +10,10 @@ type Venue =
   | "launches"
   | "agents"
   | "delegatedSigning";
-type Capabilities = { live?: Partial<Record<Venue, boolean>> };
+type Capabilities = {
+  live?: Partial<Record<Venue, boolean>>;
+  limits?: { perps?: { maxLeverage: number; maxNotionalUsd: number }; swapMaxUsd?: number };
+};
 
 function loadCapabilities(): Promise<Capabilities> {
   return fetch("/api/capabilities", { cache: "no-store" })
@@ -36,4 +39,19 @@ export function useLiveCapability(venue: Venue): boolean {
     };
   }, [venue]);
   return enabled;
+}
+
+/** Sisera's perpetual order limits, or conservative defaults until they load. */
+export function usePerpLimits() {
+  const [limits, setLimits] = useState({ maxLeverage: 20, maxNotionalUsd: 25_000 });
+  useEffect(() => {
+    let active = true;
+    void loadCapabilities().then((capabilities) => {
+      if (active && capabilities.limits?.perps) setLimits(capabilities.limits.perps);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return limits;
 }

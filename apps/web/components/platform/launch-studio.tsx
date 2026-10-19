@@ -659,6 +659,7 @@ export function LaunchStudio({ agentId: initialAgent }: { agentId: string | null
               className="border-b border-line/60 px-4 py-2.5 text-xs last:border-0"
             >
               <Link
+                prefetch={false}
                 href={`/launch/${launch.id}`}
                 className="font-semibold text-bone hover:text-bronze-200"
               >
