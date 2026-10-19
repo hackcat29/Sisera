@@ -183,7 +183,11 @@ function TradeTicketView({
         const inputMint = side === "buy" ? USDC : mint;
         const holding = balance.holdings.find((item) => item.mint === inputMint);
         if (!holding)
-          throw new Error(`No ${side === "buy" ? "USDC" : symbol} balance in this wallet.`);
+          throw new Error(
+            side === "buy"
+              ? "No USDC in this wallet. Swap a token to USDC from your Portfolio first."
+              : `No ${symbol} balance in this wallet.`,
+          );
         body = {
           action: "prepare",
           wallet: account.address,

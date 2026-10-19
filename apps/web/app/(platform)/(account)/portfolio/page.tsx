@@ -12,6 +12,7 @@ import { PortfolioConnect } from "../../../../components/portfolio-connect";
 import { PortfolioExport } from "../../../../components/portfolio-export";
 import { PortfolioPrivyWallet } from "../../../../components/portfolio-privy-wallet";
 import { PredictionPaperAccount } from "../../../../components/prediction-paper-account";
+import { SwapToUsdc } from "../../../../components/swap-to-usdc";
 import {
   accountErrorMessage,
   getHyperEvmWallet,
@@ -192,6 +193,7 @@ export default async function PortfolioPage({
           </div>
         )}
       </section>
+      <SwapToUsdc excludedMints={stocksResult.map((stock) => stock.mint)} />
       <details className="mx-4 mt-4 border border-line md:mx-6">
         <summary className="cursor-pointer px-4 py-3 text-xs text-slate-400">
           Practice account

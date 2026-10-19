@@ -56,6 +56,28 @@ const Environment = z.object({
     z.string().url().optional(),
   ),
   JUPITER_API_KEY: z.string().optional(),
+  /** Largest single swap into USDC, measured by the USDC it returns. */
+  SISERA_SWAP_MAX_USD: z.coerce.number().positive().max(1_000_000).default(10_000),
+  /** Private RPCs for EVM swap balances, as `chainId=url` pairs separated by commas. */
+  SISERA_EVM_RPC_URLS: z
+    .string()
+    .optional()
+    .transform((value, context) => {
+      const urls: Record<number, string> = {};
+      for (const pair of (value ?? "").split(",").filter((item) => item.trim())) {
+        const [id, ...rest] = pair.trim().split("=");
+        const url = rest.join("=");
+        if (!/^\d+$/.test(id ?? "") || !z.string().url().safeParse(url).success) {
+          context.addIssue({
+            code: "custom",
+            message: "Use chainId=url pairs separated by commas",
+          });
+          return z.NEVER;
+        }
+        urls[Number(id)] = url;
+      }
+      return urls;
+    }),
   CLAWPUMP_API_KEY: z.string().optional(),
   RELAY_API_KEY: z.string().optional(),
   SISERA_X_BEARER_TOKEN: z.string().optional(),

@@ -65,11 +65,18 @@ import { AgentDraftInput, compileAgentDraft } from "./agent-governance.js";
 import { agentTemplates } from "./agent-templates.js";
 import { createAuthenticator, requirePermission } from "./auth.js";
 import { BinanceTradingClient } from "./binance-trading.js";
-import { BridgeQuoteInput, BridgeUnavailable, RelayBridgeClient } from "./bridge.js";
+import {
+  BridgeQuoteInput,
+  BridgeUnavailable,
+  EvmSwapQuoteInput,
+  RelayBridgeClient,
+} from "./bridge.js";
 import { ClawpumpClient, ClawpumpDirectory, ClawpumpError } from "./clawpump.js";
 import { CoinMarketCapClient } from "./coinmarketcap.js";
 import type { ApiConfig } from "./config.js";
 import { PublicEquityReferenceClient } from "./equity-reference.js";
+import { EvmAssetClient, EvmAssetUnavailable } from "./evm-assets.js";
+import { EvmSwapService } from "./evm-swap.js";
 import { GeckoTerminalCandles } from "./geckoterminal.js";
 import { parseHeliusWebhook, validWebhookSecret } from "./helius-webhook.js";
 import { HeliusClient } from "./helius.js";
@@ -109,6 +116,7 @@ import { PredictionPaperRejection, settlePredictionPaperOrder } from "./predicti
 import { researchPredictionMarket } from "./prediction-research.js";
 import { PredictionTradingService } from "./prediction-trading.js";
 import { SocialFeedClient } from "./social-feed.js";
+import { SolanaConvertService, USDC_MINT } from "./solana-convert.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { StockNewsClient } from "./stock-news.js";
 import { HeliusEnhancedTransaction, SiseraTelegramBuyBot } from "./telegram-buybot.js";
@@ -235,6 +243,16 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         : null;
     },
   );
+  const solanaConvert = new SolanaConvertService({
+    databaseUrl: config.DATABASE_URL,
+    helius,
+    jupiter,
+    maxNotionalUsd: config.SISERA_SWAP_MAX_USD,
+    trackedAsset: async (mint) => {
+      if (!catalogRef) throw new Error("Asset catalog is not ready");
+      return (await catalogRef.byMint(mint))?.kind ?? null;
+    },
+  });
   const solanaLiveReady = Boolean(
     config.SISERA_LIVE_SOLANA_ENABLED &&
       config.DATABASE_URL &&
@@ -252,6 +270,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   );
   const binanceTrading = new BinanceTradingClient();
   const bridge = new RelayBridgeClient(config.RELAY_API_KEY);
+  const evmAssets = new EvmAssetClient(config.SISERA_EVM_RPC_URLS);
+  const evmSwap = new EvmSwapService(bridge, evmAssets, config.SISERA_SWAP_MAX_USD);
   const social = new SocialFeedClient({
     xBearer: config.SISERA_X_BEARER_TOKEN,
     xAccounts: config.SISERA_X_TRACKED_ACCOUNTS,
@@ -483,6 +503,104 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         return reply
           .code(503)
           .send({ message: "HyperEVM wallet balances are temporarily unavailable." });
+      }
+    },
+  );
+  app.get(
+    "/v1/wallets/evm/:address/assets",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const { address } = z
+        .object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) })
+        .parse(request.params);
+      try {
+        return { data: await evmAssets.assets(address) };
+      } catch {
+        return reply
+          .code(503)
+          .send({ message: "EVM wallet balances are temporarily unavailable." });
+      }
+    },
+  );
+  app.get(
+    "/v1/wallets/evm/:address/token",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const { address } = z
+        .object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) })
+        .parse(request.params);
+      const query = z
+        .object({
+          chainId: z.coerce.number().int().positive(),
+          token: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+        })
+        .parse(request.query);
+      try {
+        return { data: await evmAssets.lookup(query.chainId, query.token, address) };
+      } catch (error) {
+        return reply.code(error instanceof EvmAssetUnavailable ? 422 : 503).send({
+          message:
+            error instanceof EvmAssetUnavailable
+              ? error.message
+              : "Token details are temporarily unavailable.",
+        });
+      }
+    },
+  );
+  app.post(
+    "/v1/bridge/swap-quote",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      if (!request.principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      if (!config.DATABASE_URL)
+        return reply.code(503).send({ message: "Account swap history is unavailable." });
+      try {
+        const input = EvmSwapQuoteInput.parse(request.body);
+        if (!(await requireOwnedWallet(reply, request.principal.subject, input.user, "ethereum")))
+          return reply;
+        if (
+          !(await requireOwnedWallet(
+            reply,
+            request.principal.subject,
+            input.recipient,
+            input.destinationChainId === 999 ? "ethereum" : "solana",
+          ))
+        )
+          return reply;
+        const quote = await evmSwap.quote(input);
+        await createBridgeTransfer(config.DATABASE_URL, {
+          requestId: quote.requestId,
+          tenantId: request.principal.tenantId,
+          subject: request.principal.subject,
+          originAddress: input.user,
+          recipient: quote.recipient,
+          originChainId: quote.originChainId,
+          destinationChainId: quote.destinationChainId,
+          originAmountUsdc: null,
+          quotedOutputUsdc: quote.outputAmountUsdc,
+          originCurrency: quote.originCurrency,
+          originSymbol: quote.originSymbol?.slice(0, 32) ?? null,
+          originDecimals: quote.originDecimals,
+          originAmountRaw: quote.originAmount,
+        });
+        return { data: quote };
+      } catch (error) {
+        if (error instanceof BridgeUnavailable)
+          return reply.code(error.status).send({ message: error.message });
+        if (error instanceof z.ZodError)
+          return reply.code(400).send({ message: "Invalid swap request", issues: error.issues });
+        request.log.warn({ error }, "EVM swap quote failed");
+        return reply.code(503).send({ message: "Swap quotes are temporarily unavailable." });
       }
     },
   );
@@ -1698,6 +1816,69 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         .object({ signedTransaction: z.string().min(40).max(5000) })
         .parse(request.body);
       return { data: await solanaTrading.execute(id, principal.subject, signedTransaction) };
+    },
+  );
+  app.get(
+    "/v1/solana/convert/quote",
+    {
+      preHandler: requirePermission("market:read"),
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const { inputMint, amount } = z
+        .object({
+          inputMint: z
+            .string()
+            .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
+            .refine((mint) => mint !== USDC_MINT),
+          amount: z.string().regex(/^[1-9][0-9]{0,18}$/),
+        })
+        .parse(request.query);
+      if (!jupiter)
+        return reply
+          .code(503)
+          .send({ error: "provider_unavailable", message: "Swaps are not available right now." });
+      try {
+        return { data: await jupiter.preview(inputMint, USDC_MINT, amount) };
+      } catch {
+        return reply.code(422).send({
+          error: "no_route",
+          message: "No swap route with enough liquidity was found for this token.",
+        });
+      }
+    },
+  );
+  app.post(
+    "/v1/solana/convert/prepare",
+    {
+      preHandler: requirePermission("order:live:create"),
+      config: { rateLimit: { max: 8, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      if (!config.SISERA_LIVE_SOLANA_ENABLED)
+        return reply
+          .code(503)
+          .send({ error: "live_trading_disabled", message: "Solana swaps are paused." });
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const input = z
+        .object({
+          wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          inputMint: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          amount: z.string().regex(/^[1-9][0-9]{0,18}$/),
+          slippageBps: z.number().int().min(1).max(300).optional(),
+        })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, input.wallet, "solana")))
+        return reply;
+      return {
+        data: await solanaConvert.prepare({
+          ...input,
+          subject: principal.subject,
+          tenantId: principal.tenantId,
+        }),
+      };
     },
   );
   app.get(

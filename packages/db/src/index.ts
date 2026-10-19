@@ -56,8 +56,13 @@ export type BridgeTransferInput = {
   recipient: string;
   originChainId: number;
   destinationChainId: number;
-  originAmountUsdc: string;
+  /** USDC sent for a bridge; null for a swap, which records its origin token instead. */
+  originAmountUsdc: string | null;
   quotedOutputUsdc: string;
+  originCurrency?: string | null;
+  originSymbol?: string | null;
+  originDecimals?: number | null;
+  originAmountRaw?: string | null;
 };
 
 export async function createBridgeTransfer(
@@ -69,17 +74,21 @@ export async function createBridgeTransfer(
     const [created] = await connection`
       INSERT INTO bridge_transfers
         (request_id, tenant_id, subject, origin_address, recipient, origin_chain_id,
-         destination_chain_id, origin_amount_usdc, quoted_output_usdc)
+         destination_chain_id, origin_amount_usdc, quoted_output_usdc, origin_currency,
+         origin_symbol, origin_decimals, origin_amount_raw)
       VALUES (${transfer.requestId}, ${transfer.tenantId}, ${transfer.subject},
               ${transfer.originAddress}, ${transfer.recipient}, ${transfer.originChainId},
-              ${transfer.destinationChainId}, ${transfer.originAmountUsdc}, ${transfer.quotedOutputUsdc})
+              ${transfer.destinationChainId}, ${transfer.originAmountUsdc}, ${transfer.quotedOutputUsdc},
+              ${transfer.originCurrency ?? null}, ${transfer.originSymbol ?? null},
+              ${transfer.originDecimals ?? null}, ${transfer.originAmountRaw ?? null})
       ON CONFLICT (request_id) DO NOTHING RETURNING id
     `;
     if (!created) {
       const [existing] = await connection`
         SELECT subject, origin_address AS "originAddress", recipient,
                origin_chain_id AS "originChainId", destination_chain_id AS "destinationChainId",
-               origin_amount_usdc::text AS "originAmountUsdc"
+               origin_amount_usdc::text AS "originAmountUsdc",
+               origin_currency AS "originCurrency", origin_amount_raw::text AS "originAmountRaw"
         FROM bridge_transfers WHERE request_id = ${transfer.requestId}
       `;
       if (
@@ -89,7 +98,11 @@ export async function createBridgeTransfer(
         existing.recipient !== transfer.recipient ||
         Number(existing.originChainId) !== transfer.originChainId ||
         Number(existing.destinationChainId) !== transfer.destinationChainId ||
-        Number(existing.originAmountUsdc) !== Number(transfer.originAmountUsdc)
+        (existing.originAmountUsdc == null
+          ? transfer.originAmountUsdc != null
+          : Number(existing.originAmountUsdc) !== Number(transfer.originAmountUsdc)) ||
+        (existing.originCurrency ?? null) !== (transfer.originCurrency ?? null) ||
+        (existing.originAmountRaw ?? null) !== (transfer.originAmountRaw ?? null)
       )
         throw new Error("Bridge request ID belongs to a different quote");
     }
@@ -106,6 +119,8 @@ export async function listBridgeTransfers(connectionString: string, subject: str
              origin_chain_id AS "originChainId", destination_chain_id AS "destinationChainId",
              origin_amount_usdc::text AS "originAmountUsdc",
              quoted_output_usdc::text AS "quotedOutputUsdc", status,
+             origin_currency AS "originCurrency", origin_symbol AS "originSymbol",
+             origin_decimals AS "originDecimals", origin_amount_raw::text AS "originAmountRaw",
              source_tx_hash AS "sourceTxHash", destination_tx_hash AS "destinationTxHash",
              quoted_at AS "quotedAt", updated_at AS "updatedAt"
       FROM bridge_transfers WHERE subject = ${subject}
