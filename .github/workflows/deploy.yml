@@ -375,7 +375,9 @@ jobs:
             PUBLIC_BASE_URL="${SISERA_PUBLIC_URL:-https://sisera.xyz}"
             for BASE_URL in "http://127.0.0.1:$WEB_PORT" "$PUBLIC_BASE_URL"; do
               echo "==> Checking sign-in at $BASE_URL"
-              curl --fail --silent --show-error --retry 5 --retry-delay 2 "$BASE_URL/sign-in" -D /tmp/sisera-sign-in.headers -o /tmp/sisera-sign-in.html
+              # The public URL goes through Cloudflare Tunnel, whose edge connections drop and
+              # reconnect several times an hour. Allow about a minute of those blips before failing.
+              curl --fail --silent --show-error --max-time 15 --retry 12 --retry-delay 5 --retry-all-errors "$BASE_URL/sign-in" -D /tmp/sisera-sign-in.headers -o /tmp/sisera-sign-in.html
               if ! grep -F "/_next/$EXPECTED_SIGNIN_CHUNK" /tmp/sisera-sign-in.html >/dev/null; then
                 echo "ERROR: $BASE_URL served sign-in HTML from a different build."
                 grep -oE '/_next/static/chunks/app/sign-in/page-[a-z0-9]+\.js' /tmp/sisera-sign-in.html | head -1 || true
@@ -403,7 +405,7 @@ jobs:
                 ss -ltnp | grep -E ':(80|443|3000|9000)[[:space:]]' || true
                 exit 1
               fi
-              curl --fail --silent --show-error --retry 5 --retry-delay 2 "$BASE_URL/_next/$EXPECTED_SIGNIN_CHUNK" -o /dev/null
+              curl --fail --silent --show-error --max-time 15 --retry 12 --retry-delay 5 --retry-all-errors "$BASE_URL/_next/$EXPECTED_SIGNIN_CHUNK" -o /dev/null
             done
             rm -rf apps/web/.next-previous
 
