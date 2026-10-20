@@ -104,6 +104,7 @@ export function PrivateRankings() {
                   <td className="px-4 py-2.5 text-slate-500">{index + 1}</td>
                   <td className="px-4 py-2.5">
                     <Link
+                      prefetch={false}
                       href={`/private-markets/${encodeURIComponent(row.symbol)}`}
                       className="font-sans font-semibold text-bone hover:text-bronze-200"
                     >

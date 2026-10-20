@@ -109,6 +109,7 @@ function RankingCard({ title, data }: { title: string; data: unknown }) {
                       "top10WalletPct" in row ||
                       "risk" in row) ? (
                       <Link
+                        prefetch={false}
                         className="text-bronze-200 hover:underline"
                         href={`/clawpump/${String(row.mint)}`}
                       >

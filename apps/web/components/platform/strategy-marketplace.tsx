@@ -6,6 +6,9 @@ import { platform } from "../../lib/platform";
 import { useSolanaSigner } from "../../lib/use-solana-signer";
 import { Panel, Stat } from "./ui";
 
+const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count.toLocaleString("en-US")} ${count === 1 ? one : many}`;
+
 type Performance = {
   trades: number;
   closedTrades: number;
@@ -488,10 +491,10 @@ export function StrategyMarketplace({
               </p>
               <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-400">
                 <span className="text-bronze-200">{l.evaluation}</span>
-                <span>{l.reputation?.licenses ?? 0} licenses</span>
+                <span>{plural(l.reputation?.licenses ?? 0, "license")}</span>
                 <span>
-                  {l.reputation?.rating?.toFixed(1) ?? "—"} / 5 · {l.reputation?.reviewCount ?? 0}{" "}
-                  reviews
+                  {l.reputation?.rating?.toFixed(1) ?? "—"} / 5 ·{" "}
+                  {plural(l.reputation?.reviewCount ?? 0, "review")}
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -527,14 +530,15 @@ export function StrategyMarketplace({
                 <details className="mt-2 text-[11px] text-slate-400">
                   <summary className="cursor-pointer">Creator history</summary>
                   <p className="mt-1">
-                    {l.creator.listings} strategies · {l.creator.licenses} licenses ·{" "}
-                    {l.creator.rating?.toFixed(1) ?? "—"} / 5 ({l.creator.reviews} reviews)
+                    {plural(l.creator.listings, "strategy", "strategies")} ·{" "}
+                    {plural(l.creator.licenses, "license")} · {l.creator.rating?.toFixed(1) ?? "—"}{" "}
+                    / 5 ({plural(l.creator.reviews, "review")})
                   </p>
                 </details>
               )}
               {l.isCreator && (
                 <p className="mt-3 text-xs text-slate-300">
-                  {l.sales ?? 0} licenses · {(l.earnedUsdc ?? 0).toFixed(2)} USDC earned
+                  {plural(l.sales ?? 0, "license")} · {(l.earnedUsdc ?? 0).toFixed(2)} USDC earned
                 </p>
               )}
               <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-4">

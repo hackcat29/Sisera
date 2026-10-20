@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RelayBridgeClient } from "../src/bridge.js";
+import { BRIDGE_CHAINS, DESTINATION_USDC, RelayBridgeClient } from "../src/bridge.js";
+import { EVM_SWAP_CHAINS } from "../src/evm-assets.js";
 
 const user = "0x03508bb71268bba25ecacc8f620e01866650532c";
 const solana = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -67,5 +68,19 @@ describe("Relay bridge boundary", () => {
         amountUsdc: "10",
       }),
     ).rejects.toThrow("wallet actions");
+  });
+
+  it("only hard-codes well-formed token addresses", () => {
+    // A Base USDC address missing one character once broke every bridge from Base.
+    const evm = /^0x[0-9a-fA-F]{40}$/;
+    for (const chain of Object.values(BRIDGE_CHAINS)) expect(chain.usdc).toMatch(evm);
+    expect(DESTINATION_USDC[999]).toMatch(evm);
+    for (const chain of Object.values(EVM_SWAP_CHAINS)) {
+      expect(chain.usdc).toMatch(evm);
+      for (const token of chain.tokens) expect(token.address).toMatch(evm);
+    }
+    // Each bridge chain's USDC is the same token the swap lists for that chain.
+    for (const [id, chain] of Object.entries(BRIDGE_CHAINS))
+      expect(chain.usdc.toLowerCase()).toBe(EVM_SWAP_CHAINS[Number(id)]?.usdc);
   });
 });

@@ -26,6 +26,8 @@ import { USDC_MINT } from "./catalog.js";
 export type MarkSources = {
   cryptoSpot: (symbol: string) => Promise<{ price: number; observedAt: string } | null>;
   perpetual: (symbol: string) => Promise<{ price: number; observedAt: string } | null>;
+  /** Hyperliquid spot, by token symbol such as "BTC" or "HYPE". */
+  hyperliquidSpot?: (symbol: string) => Promise<{ price: number; observedAt: string } | null>;
   prediction: (
     marketId: string,
     outcome: "yes" | "no",
@@ -87,7 +89,10 @@ export class PortfolioService {
         (fill.assetClass as AssetClassKey | null) ??
         (asset ? ASSET_CLASS_BY_KIND[asset.kind] : "agent_token");
       let symbol = asset?.symbol ?? fill.instrumentKey.slice(0, 8);
-      if (fill.instrumentKey.startsWith("binance:")) {
+      if (fill.instrumentKey.startsWith("hyperliquid-spot:")) {
+        assetClass = "crypto_spot";
+        symbol = fill.instrumentKey.slice("hyperliquid-spot:".length).replace(/\/USDC$/, "");
+      } else if (fill.instrumentKey.startsWith("binance:")) {
         assetClass = "crypto_spot";
         symbol = fill.instrumentKey.slice(8).replace(/USDT$|USDC$/, "");
       } else if (fill.instrumentKey.startsWith("hyperliquid:")) {
@@ -136,6 +141,17 @@ export class PortfolioService {
           underlying: asset.underlying,
           sector: asset.sector,
         };
+      if (key.startsWith("hyperliquid-spot:")) {
+        const symbol = key.slice("hyperliquid-spot:".length).replace(/\/USDC$/, "");
+        const quote = await this.marks.hyperliquidSpot?.(symbol);
+        return {
+          priceUsd: quote ? String(quote.price) : null,
+          source: "hyperliquid-spot",
+          observedAt: quote?.observedAt ?? null,
+          underlying: symbol,
+          sector: "Crypto",
+        };
+      }
       if (key.startsWith("binance:")) {
         const symbol = key.slice(8);
         const quote = await this.marks.cryptoSpot(symbol);

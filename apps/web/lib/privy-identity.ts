@@ -14,9 +14,15 @@ export function getPrivyDisplayName(user: User | null | undefined): string {
   );
 }
 
+/**
+ * The account's Solana wallet: one the user signed in with (Phantom, Solflare…) if any, otherwise
+ * the embedded wallet Sisera created. Every screen uses this rule so they show the same wallet.
+ */
 export function getPrivySolanaAddress(user: User | null | undefined): string | null {
-  const wallet = user?.linkedAccounts.find(
-    (account) => account.type === "wallet" && account.chainType === "solana",
+  const wallets = (user?.linkedAccounts ?? []).filter(
+    (account): account is Extract<typeof account, { type: "wallet" }> =>
+      account.type === "wallet" && account.chainType === "solana",
   );
-  return wallet?.type === "wallet" ? wallet.address : null;
+  const external = wallets.find((wallet) => wallet.walletClientType !== "privy");
+  return (external ?? wallets[0])?.address ?? null;
 }

@@ -17,35 +17,22 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object")
     return NextResponse.json({ message: "Invalid order." }, { status: 400 });
-  const live = body.mode === "live" && body.venue === "binance";
-  if (body.mode !== "paper" && !live)
+  // Practice orders only; live trades go through the venue-specific routes.
+  if (body.mode !== "paper")
     return NextResponse.json({ message: "Unsupported order mode." }, { status: 400 });
-  if (
-    live &&
-    (!session ||
-      session.accessToken.startsWith("guest:") ||
-      session.accessToken.startsWith("wallet:"))
-  )
-    return NextResponse.json(
-      { message: "Sign in with your account to trade live." },
-      { status: 401 },
-    );
   try {
-    const response = await fetch(
-      `${serverApiUrl()}${live ? "/v1/market-orders/binance/live" : "/v1/market-orders/paper"}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(session
-            ? { authorization: `Bearer ${session.accessToken}` }
-            : { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "web-local" }),
-        },
-        body: JSON.stringify(body),
-        cache: "no-store",
-        signal: AbortSignal.timeout(live ? 25000 : 15000),
+    const response = await fetch(`${serverApiUrl()}/v1/market-orders/paper`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(session
+          ? { authorization: `Bearer ${session.accessToken}` }
+          : { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "web-local" }),
       },
-    );
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
     const payload = await response.json().catch(() => ({}));
     return NextResponse.json(payload, {
       status: response.status,

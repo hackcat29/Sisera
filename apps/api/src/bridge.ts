@@ -4,15 +4,25 @@ import { EVM_SWAP_CHAINS, NATIVE_TOKEN } from "./evm-assets.js";
 export const SOLANA_CHAIN_ID = 792703809;
 export const BRIDGE_CHAINS = {
   1: { name: "Ethereum", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
-  8453: { name: "Base", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54dA02913" },
+  8453: { name: "Base", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
   42161: { name: "Arbitrum", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
 } as const;
+/** Relay's chain ID for HyperCore, where USDC lands in the user's Hyperliquid perps balance. */
+export const HYPERLIQUID_CHAIN_ID = 1337;
 export const DESTINATION_USDC = {
   999: "0xb88339CB7199b77E23DB6E890353E22632Ba630f",
   [SOLANA_CHAIN_ID]: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  [HYPERLIQUID_CHAIN_ID]: "0x00000000000000000000000000000000",
 } as const;
+/** Hyperliquid's perps USDC uses 8 decimals; USDC everywhere else here uses 6. */
+const DESTINATION_DECIMALS: Record<number, number> = { [HYPERLIQUID_CHAIN_ID]: 8 };
 export const HYPEREVM_USDC = DESTINATION_USDC[999];
+const SOLANA_USDC = DESTINATION_USDC[SOLANA_CHAIN_ID];
+/** Relay's Solana deposit program. A deposit instruction for any other program is refused. */
+const RELAY_SOLANA_PROGRAMS = new Set(["99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2"]);
 const EvmAddress = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
+/** An EVM transaction hash or a base58 Solana signature. */
+const TxHash = z.string().regex(/^(?:0x[a-fA-F0-9]{64}|[1-9A-HJ-NP-Za-km-z]{64,90})$/);
 const SolanaAddress = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
 
 function validRecipient(
@@ -104,6 +114,20 @@ const CurrencyAmount = z.object({
   }),
 });
 const Impact = z.object({ usd: z.string().optional(), percent: z.string().optional() });
+const SvmInstruction = z.object({
+  programId: SolanaAddress,
+  data: z.string().regex(/^[0-9a-fA-F]*$/),
+  keys: z.array(
+    z.object({ pubkey: SolanaAddress, isSigner: z.boolean(), isWritable: z.boolean() }),
+  ),
+});
+const SolanaSteps = z.array(
+  z.object({
+    instructions: z.array(SvmInstruction).min(1).max(8),
+    addressLookupTableAddresses: z.array(SolanaAddress).max(4).default([]),
+  }),
+);
+export type SolanaDepositInstruction = z.infer<typeof SvmInstruction>;
 const Quote = z.object({
   steps: z
     .array(
@@ -111,7 +135,8 @@ const Quote = z.object({
         id: z.string().optional(),
         kind: z.string(),
         requestId: z.string().optional(),
-        items: z.array(z.object({ data: Transaction })).default([]),
+        // Item data is validated per route: EVM transactions or Solana instructions.
+        items: z.array(z.object({ data: z.unknown() })).default([]),
       }),
     )
     .min(1),
@@ -144,24 +169,49 @@ export class BridgeUnavailable extends Error {
   }
 }
 
-const formatUsdc = (atomic: bigint) =>
-  `${atomic / 1_000_000n}.${(atomic % 1_000_000n).toString().padStart(6, "0")}`;
+/** Formats a USDC amount with six decimal places, whatever the token's own precision. */
+const formatUsdc = (atomic: bigint, decimals = 6) => {
+  const micro =
+    decimals >= 6 ? atomic / 10n ** BigInt(decimals - 6) : atomic * 10n ** BigInt(6 - decimals);
+  return `${micro / 1_000_000n}.${(micro % 1_000_000n).toString().padStart(6, "0")}`;
+};
 const percent = (impact: z.infer<typeof Impact> | undefined) => {
   const value = Number(impact?.percent);
   return impact?.percent != null && Number.isFinite(value) ? value : null;
 };
 
-export class RelayBridgeClient {
-  constructor(private readonly apiKey?: string) {}
+export type RelayFees = {
+  /** EVM address whose Relay balance accrues the fees, claimable in USDC. */
+  recipient: string;
+  /** Fee on swaps of other tokens into USDC, in basis points of the input. */
+  swapBps: number;
+  /** Fee on moving USDC between chains or into Hyperliquid. */
+  bridgeBps: number;
+};
 
-  private async request(body: Record<string, unknown>): Promise<Quote> {
+export class RelayBridgeClient {
+  constructor(
+    private readonly apiKey?: string,
+    private readonly fees?: RelayFees,
+  ) {}
+
+  private async request(body: Record<string, unknown>, feeBps = 0): Promise<Quote> {
+    const appFees =
+      this.fees && feeBps > 0
+        ? [{ recipient: this.fees.recipient, fee: String(feeBps) }]
+        : undefined;
     const response = await fetch("https://api.relay.link/quote/v2", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
       },
-      body: JSON.stringify({ ...body, tradeType: "EXACT_INPUT", usePermit: false }),
+      body: JSON.stringify({
+        ...body,
+        tradeType: "EXACT_INPUT",
+        usePermit: false,
+        ...(appFees ? { appFees } : {}),
+      }),
       signal: AbortSignal.timeout(12000),
     });
     const payload: unknown = await response.json().catch(() => null);
@@ -179,36 +229,35 @@ export class RelayBridgeClient {
 
   /** Relay steps with nothing to send are skipped; everything else must be signed by `user`. */
   private executableSteps(quote: Quote, originChainId: number, user: string) {
-    const steps = quote.steps.filter((step) => step.items.length > 0);
-    if (
-      !steps.length ||
-      steps.some(
-        (step) =>
+    const unsupported = () =>
+      new BridgeUnavailable("This bridge route needs wallet actions Sisera cannot sign yet.", 422);
+    const steps = quote.steps
+      .filter((step) => step.items.length > 0)
+      .map((step) => {
+        const items = step.items.map((item) => Transaction.safeParse(item.data));
+        if (
           step.kind !== "transaction" ||
-          step.items.some(
+          items.some(
             (item) =>
+              !item.success ||
               item.data.chainId !== originChainId ||
               item.data.from.toLowerCase() !== user.toLowerCase(),
-          ),
-      )
-    )
-      throw new BridgeUnavailable(
-        "This bridge route needs wallet actions Sisera cannot sign yet.",
-        422,
-      );
+          )
+        )
+          throw unsupported();
+        return {
+          id: step.id ?? null,
+          kind: step.kind,
+          items: items.flatMap((item) => (item.success ? [item.data] : [])),
+        };
+      });
+    if (!steps.length) throw unsupported();
     const requestId = quote.steps.find((step) =>
       /^0x[a-fA-F0-9]{64}$/.test(step.requestId ?? ""),
     )?.requestId;
     if (!requestId)
       throw new BridgeUnavailable("Relay did not provide a trackable bridge request.");
-    return {
-      requestId,
-      steps: steps.map((step) => ({
-        id: step.id ?? null,
-        kind: step.kind,
-        items: step.items.map((item) => item.data),
-      })),
-    };
+    return { requestId, steps };
   }
 
   private checkOutput(quote: Quote, destinationChainId: number) {
@@ -218,9 +267,10 @@ export class RelayBridgeClient {
       destinationChainId === SOLANA_CHAIN_ID
         ? actualOutputMint === destination
         : actualOutputMint.toLowerCase() === destination.toLowerCase();
-    if (quote.details.currencyOut.currency.decimals !== 6 || !correctOutputMint)
+    const decimals = DESTINATION_DECIMALS[destinationChainId] ?? 6;
+    if (quote.details.currencyOut.currency.decimals !== decimals || !correctOutputMint)
       throw new BridgeUnavailable("Relay returned an unexpected destination token.");
-    return BigInt(quote.details.currencyOut.amount);
+    return { atomic: BigInt(quote.details.currencyOut.amount), decimals };
   }
 
   async quote(rawInput: unknown) {
@@ -229,22 +279,30 @@ export class RelayBridgeClient {
     const destination = DESTINATION_USDC[input.destinationChainId as keyof typeof DESTINATION_USDC];
     const [whole, fraction = ""] = input.amountUsdc.split(".");
     const amount = (BigInt(whole ?? "0") * 1_000_000n + BigInt(fraction.padEnd(6, "0"))).toString();
-    const quote = await this.request({
-      user: input.user,
-      recipient: input.recipient,
-      originChainId: input.originChainId,
-      destinationChainId: input.destinationChainId,
-      originCurrency: origin.usdc,
-      destinationCurrency: destination,
-      amount,
-    });
-    const outputAtomic = this.checkOutput(quote, input.destinationChainId);
+    const quote = await this.request(
+      {
+        user: input.user,
+        recipient: input.recipient,
+        originChainId: input.originChainId,
+        destinationChainId: input.destinationChainId,
+        originCurrency: origin.usdc,
+        destinationCurrency: destination,
+        amount,
+      },
+      this.fees?.bridgeBps,
+    );
+    const output = this.checkOutput(quote, input.destinationChainId);
+    if (
+      input.destinationChainId === HYPERLIQUID_CHAIN_ID &&
+      Number(formatUsdc(output.atomic, output.decimals)) < 5
+    )
+      throw new BridgeUnavailable("Hyperliquid deposits must be at least 5 USDC after fees.", 422);
     const { requestId, steps } = this.executableSteps(quote, input.originChainId, input.user);
     return {
       requestId,
       steps,
       fees: quote.fees ?? {},
-      outputAmountUsdc: formatUsdc(outputAtomic),
+      outputAmountUsdc: formatUsdc(output.atomic, output.decimals),
       timeEstimateSeconds: quote.details.timeEstimate ?? null,
       originChainId: input.originChainId,
       destinationChainId: input.destinationChainId,
@@ -261,17 +319,22 @@ export class RelayBridgeClient {
   async swapQuote(rawInput: unknown) {
     const input = EvmSwapQuoteInput.parse(rawInput);
     const destination = DESTINATION_USDC[input.destinationChainId as keyof typeof DESTINATION_USDC];
-    const quote = await this.request({
-      user: input.user,
-      recipient: input.recipient,
-      refundTo: input.user,
-      originChainId: input.originChainId,
-      destinationChainId: input.destinationChainId,
-      originCurrency: input.originCurrency,
-      destinationCurrency: destination,
-      amount: input.amount,
-    });
-    const outputAtomic = this.checkOutput(quote, input.destinationChainId);
+    const quote = await this.request(
+      {
+        user: input.user,
+        recipient: input.recipient,
+        refundTo: input.user,
+        originChainId: input.originChainId,
+        destinationChainId: input.destinationChainId,
+        originCurrency: input.originCurrency,
+        destinationCurrency: destination,
+        amount: input.amount,
+      },
+      input.originCurrency === EVM_SWAP_CHAINS[input.originChainId]?.usdc
+        ? this.fees?.bridgeBps
+        : this.fees?.swapBps,
+    );
+    const output = this.checkOutput(quote, input.destinationChainId);
     const currencyIn = quote.details.currencyIn;
     if (
       !currencyIn ||
@@ -298,8 +361,8 @@ export class RelayBridgeClient {
       requestId,
       steps,
       fees: quote.fees ?? {},
-      outputAmountUsdc: formatUsdc(outputAtomic),
-      minimumOutputUsdc: minimum ? formatUsdc(BigInt(minimum)) : null,
+      outputAmountUsdc: formatUsdc(output.atomic, output.decimals),
+      minimumOutputUsdc: minimum ? formatUsdc(BigInt(minimum), output.decimals) : null,
       timeEstimateSeconds: quote.details.timeEstimate ?? null,
       originChainId: input.originChainId,
       destinationChainId: input.destinationChainId,
@@ -322,6 +385,65 @@ export class RelayBridgeClient {
     };
   }
 
+  /**
+   * Quotes a deposit of Solana USDC into the user's Hyperliquid perps balance. Relay returns one
+   * instruction for its deposit program, which Sisera builds into a transaction for the user to
+   * sign; the instruction is accepted only if the user is its sole signer.
+   */
+  async solanaDepositQuote(input: { user: string; recipient: string; amountUsdc: string }) {
+    const user = SolanaAddress.parse(input.user);
+    const recipient = EvmAddress.parse(input.recipient);
+    if (!/^\d+(?:\.\d{1,6})?$/.test(input.amountUsdc))
+      throw new BridgeUnavailable("Enter a valid USDC amount.", 422);
+    const [whole, fraction = ""] = input.amountUsdc.split(".");
+    const amount = BigInt(whole ?? "0") * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
+    const quote = await this.request(
+      {
+        user,
+        recipient,
+        refundTo: user,
+        originChainId: SOLANA_CHAIN_ID,
+        destinationChainId: HYPERLIQUID_CHAIN_ID,
+        originCurrency: SOLANA_USDC,
+        destinationCurrency: DESTINATION_USDC[HYPERLIQUID_CHAIN_ID],
+        amount: amount.toString(),
+      },
+      this.fees?.bridgeBps,
+    );
+    const output = this.checkOutput(quote, HYPERLIQUID_CHAIN_ID);
+    const requestId = quote.steps.find((step) =>
+      /^0x[a-fA-F0-9]{64}$/.test(step.requestId ?? ""),
+    )?.requestId;
+    if (!requestId) throw new BridgeUnavailable("Relay did not provide a trackable deposit.");
+    const steps = SolanaSteps.safeParse(
+      quote.steps.flatMap((step) => step.items.map((item) => item.data)),
+    );
+    if (!steps.success || steps.data.length !== 1)
+      throw new BridgeUnavailable("Relay returned an unsupported deposit route.", 422);
+    const [item] = steps.data;
+    if (
+      !item ||
+      item.instructions.some(
+        (instruction) =>
+          !RELAY_SOLANA_PROGRAMS.has(instruction.programId) ||
+          instruction.keys.some((key) => key.isSigner && key.pubkey !== user),
+      )
+    )
+      throw new BridgeUnavailable("Relay returned a deposit Sisera cannot verify.", 422);
+    const minimum = quote.details.currencyOut.minimumAmount;
+    return {
+      requestId,
+      instructions: item.instructions,
+      lookupTables: item.addressLookupTableAddresses,
+      originAmountUsdc: formatUsdc(amount),
+      outputAmountUsdc: formatUsdc(output.atomic, output.decimals),
+      minimumOutputUsdc: minimum ? formatUsdc(BigInt(minimum), output.decimals) : null,
+      fees: quote.fees ?? {},
+      timeEstimateSeconds: quote.details.timeEstimate ?? null,
+      recipient,
+    };
+  }
+
   async status(requestId: string) {
     if (!/^0x[a-fA-F0-9]{64}$/.test(requestId))
       throw new BridgeUnavailable("Invalid bridge request ID.", 400);
@@ -335,8 +457,8 @@ export class RelayBridgeClient {
     return z
       .object({
         status: z.string().min(1).max(64),
-        inTxHashes: z.array(z.string().regex(/^0x[a-fA-F0-9]{64}$/)).optional(),
-        txHashes: z.array(z.string().regex(/^0x[a-fA-F0-9]{64}$/)).optional(),
+        inTxHashes: z.array(TxHash).optional(),
+        txHashes: z.array(TxHash).optional(),
       })
       .parse(await response.json());
   }

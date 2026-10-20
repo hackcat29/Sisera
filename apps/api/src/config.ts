@@ -15,10 +15,67 @@ const Environment = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
-  SISERA_LIVE_BINANCE_ENABLED: z
+  SISERA_LIVE_HYPERLIQUID_ENABLED: z
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
+  /** Highest leverage Sisera allows on a perpetual order, and on the account as a whole. */
+  SISERA_PERP_MAX_LEVERAGE: z.coerce.number().int().min(1).max(50).default(20),
+  /** Largest position size a single perpetual order may open, in USD. */
+  SISERA_PERP_MAX_NOTIONAL_USD: z.coerce.number().positive().max(10_000_000).default(25_000),
+  /**
+   * Wallet that receives Hyperliquid builder fees. Hyperliquid only pays builders holding at least
+   * 100 USDC in their perps account. Without it, orders carry no builder fee.
+   */
+  SISERA_BUILDER_ADDRESS: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/)
+      .optional(),
+  ),
+  /** Builder fee in basis points; Hyperliquid caps it at 10 (0.1%) on perps and 100 (1%) on spot. */
+  SISERA_BUILDER_FEE_PERP_BPS: z.coerce.number().min(0).max(10).default(10),
+  SISERA_BUILDER_FEE_SPOT_BPS: z.coerce.number().min(0).max(100).default(100),
+  /** Jupiter referral account that collects Sisera's fee on Solana trades. */
+  SISERA_JUPITER_REFERRAL_ACCOUNT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
+      .optional(),
+  ),
+  /** Jupiter accepts 50-255 basis points; 0 turns the fee off. */
+  SISERA_JUPITER_TRADE_FEE_BPS: z.coerce
+    .number()
+    .int()
+    .refine((value) => value === 0 || (value >= 50 && value <= 255))
+    .default(100),
+  SISERA_JUPITER_CONVERT_FEE_BPS: z.coerce
+    .number()
+    .int()
+    .refine((value) => value === 0 || (value >= 50 && value <= 255))
+    .default(50),
+  /** EVM address whose Relay balance collects Sisera's fee on bridges and EVM swaps. */
+  SISERA_RELAY_FEE_RECIPIENT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/)
+      .optional(),
+  ),
+  SISERA_RELAY_SWAP_FEE_BPS: z.coerce.number().int().min(0).max(500).default(50),
+  /** Sisera's USDC token account on Solana, which receives fees on prediction orders. */
+  SISERA_SOLANA_FEE_ACCOUNT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
+      .optional(),
+  ),
+  SISERA_PREDICTION_FEE_BPS: z.coerce.number().min(0).max(500).default(100),
+  /** Moving USDC between chains to fund trading is free by default. */
+  SISERA_RELAY_BRIDGE_FEE_BPS: z.coerce.number().int().min(0).max(500).default(0),
   SISERA_LIVE_LAUNCHES_ENABLED: z
     .enum(["true", "false"])
     .default("true")

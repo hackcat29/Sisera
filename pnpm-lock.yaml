@@ -35,6 +35,9 @@ importers:
       '@meteora-ag/dynamic-bonding-curve-sdk':
         specifier: 1.5.13
         version: 1.5.13(bufferutil@4.1.0)(encoding@0.1.13)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      '@nktkas/hyperliquid':
+        specifier: 0.33.3
+        version: 0.33.3(typescript@5.9.3)
       '@privy-io/server-auth':
         specifier: 1.32.5
         version: 1.32.5(bufferutil@4.1.0)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@6.0.6)(viem@2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))
@@ -89,6 +92,9 @@ importers:
       prom-client:
         specifier: ^15.1.3
         version: 15.1.3
+      viem:
+        specifier: 2.56.9
+        version: 2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       zod:
         specifier: ^3.24.2
         version: 3.25.76
@@ -153,6 +159,9 @@ importers:
       next:
         specifier: ^15.2.1
         version: 15.5.26(@opentelemetry/api@1.9.1)(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      qrcode:
+        specifier: 1.5.4
+        version: 1.5.4
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -169,6 +178,9 @@ importers:
       '@types/node':
         specifier: ^22.13.9
         version: 22.20.4
+      '@types/qrcode':
+        specifier: 1.5.5
+        version: 1.5.5
       '@types/react':
         specifier: ^19.0.10
         version: 19.3.0
@@ -2267,6 +2279,9 @@ packages:
 
   '@types/node@22.20.4':
     resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
+
+  '@types/qrcode@1.5.5':
+    resolution: {integrity: sha512-CdfBi/e3Qk+3Z/fXYShipBT13OJ2fDO2Q2w5CIP5anLTLIndQG9z6P1cnm+8zCWSpm5dnxMFd/uREtb0EXuQzg==}
 
   '@types/react-dom@19.3.0':
     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
@@ -7169,6 +7184,10 @@ snapshots:
   '@types/node@22.20.4':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/qrcode@1.5.5':
+    dependencies:
+      '@types/node': 22.20.4
 
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
     dependencies:

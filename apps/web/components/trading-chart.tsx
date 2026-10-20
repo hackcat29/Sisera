@@ -25,7 +25,10 @@ import { useLivePrice } from "../lib/live-prices";
 import { usePerpMid, useSpotTick } from "../lib/market-streams";
 import { formatSignedPct, signTone } from "../lib/sign";
 
-export type ChartSource = { kind: "solana" | "binance" | "hyperliquid"; id: string };
+export type ChartSource = {
+  kind: "solana" | "binance" | "hyperliquid" | "hyperliquid-spot";
+  id: string;
+};
 type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 type ChartType = "candles" | "bars" | "heikin" | "line" | "area";
 type Indicator = "volume" | "sma20" | "sma50" | "ema21" | "bollinger" | "vwap" | "rsi" | "macd";
@@ -99,7 +102,14 @@ const formatPrice = (value: number) =>
 function useLiveLast(source: ChartSource): number | undefined {
   const solana = useLivePrice(source.kind === "solana" ? source.id : null);
   const spot = useSpotTick(source.kind === "binance" ? source.id : null);
-  const perp = usePerpMid(source.kind === "hyperliquid" ? source.id.replace(/USDT?$/, "") : null);
+  // Hyperliquid streams perp and spot prices together; spot pairs are keyed like "@142".
+  const perp = usePerpMid(
+    source.kind === "hyperliquid"
+      ? source.id.replace(/USDT?$/, "")
+      : source.kind === "hyperliquid-spot"
+        ? source.id
+        : null,
+  );
   return source.kind === "solana" ? solana?.usd : source.kind === "binance" ? spot?.last : perp;
 }
 

@@ -136,6 +136,61 @@ export async function listBridgeTransfers(connectionString: string, subject: str
   }
 }
 
+/** Stores the unsigned origin transaction Sisera built for a bridge transfer. */
+export async function attachBridgeTransaction(
+  connectionString: string,
+  subject: string,
+  requestId: string,
+  unsignedTransaction: string,
+  expiresAt: Date,
+) {
+  const connection = postgres(connectionString, { max: 1, connect_timeout: 3 });
+  try {
+    const [row] = await connection`
+      UPDATE bridge_transfers
+      SET unsigned_transaction = ${unsignedTransaction}, unsigned_expires_at = ${expiresAt},
+          updated_at = clock_timestamp()
+      WHERE subject = ${subject} AND request_id = ${requestId} AND status = 'quoted'
+      RETURNING id
+    `;
+    return Boolean(row);
+  } finally {
+    await connection.end();
+  }
+}
+
+/** Takes the unsigned transaction for submission exactly once, while it is still valid. */
+export async function claimBridgeTransaction(
+  connectionString: string,
+  subject: string,
+  requestId: string,
+) {
+  const connection = postgres(connectionString, { max: 1, connect_timeout: 3 });
+  try {
+    const [row] = await connection`
+      UPDATE bridge_transfers AS transfer
+      SET unsigned_transaction = NULL, updated_at = clock_timestamp()
+      FROM (
+        SELECT id, unsigned_transaction FROM bridge_transfers
+        WHERE subject = ${subject} AND request_id = ${requestId} AND status = 'quoted'
+          AND unsigned_transaction IS NOT NULL AND unsigned_expires_at > clock_timestamp()
+        FOR UPDATE
+      ) AS pending
+      WHERE transfer.id = pending.id
+      RETURNING pending.unsigned_transaction AS "unsignedTransaction",
+                transfer.origin_address AS "originAddress"
+    `;
+    return row
+      ? {
+          unsignedTransaction: String(row.unsignedTransaction),
+          originAddress: String(row.originAddress),
+        }
+      : null;
+  } finally {
+    await connection.end();
+  }
+}
+
 export async function getBridgeTransfer(
   connectionString: string,
   subject: string,
@@ -590,13 +645,126 @@ export async function createMarketLiveOrder(
 export async function updateMarketLiveOrder(
   connectionString: string,
   id: string,
-  status: "filled" | "rejected" | "unknown",
+  status: "filled" | "rejected" | "unknown" | "open" | "cancelled",
   venueOrderId?: string,
-  fill?: { priceUsd: string; feeUsd: string },
+  fill?: { priceUsd: string; feeUsd: string; quantity?: string },
 ) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
   try {
-    await connection`UPDATE market_live_orders SET status = ${status}, venue_order_id = ${venueOrderId ?? null}, fill_price = ${fill?.priceUsd ?? null}, fee_usd = ${fill?.feeUsd ?? null}, updated_at = now() WHERE id = ${id}`;
+    await connection`UPDATE market_live_orders SET status = ${status}, venue_order_id = ${venueOrderId ?? null}, fill_price = ${fill?.priceUsd ?? null}, fee_usd = ${fill?.feeUsd ?? null}, quantity = COALESCE(${fill?.quantity ?? null}::numeric, quantity), updated_at = now() WHERE id = ${id}`;
+  } finally {
+    await connection.end();
+  }
+}
+
+export type HyperliquidPreparedOrder = {
+  id: string;
+  tenantId: string;
+  subject: string;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: string;
+  clientOrderId: string;
+  accountAddress: string;
+  preparedActions: unknown;
+  expiresAt: Date;
+  leverage: string;
+  marginUsd: string | null;
+  reduceOnly: boolean;
+  marketType: "perp" | "spot";
+  orderType: "market" | "limit";
+  limitPrice: string | null;
+};
+
+/** Records a risk-checked Hyperliquid order whose exact actions await the user's signature. */
+export async function prepareHyperliquidOrder(
+  connectionString: string,
+  order: HyperliquidPreparedOrder,
+) {
+  const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
+  try {
+    await connection`
+      INSERT INTO market_live_orders
+        (id, tenant_id, subject, venue, symbol, side, quantity, client_order_id, status,
+         account_address, prepared_actions, expires_at, leverage, margin_usd, reduce_only,
+         market_type, order_type, limit_price)
+      VALUES (${order.id}, ${order.tenantId}, ${order.subject}, 'hyperliquid', ${order.symbol},
+              ${order.side}, ${order.quantity}, ${order.clientOrderId}, 'prepared',
+              ${order.accountAddress.toLowerCase()}, ${JSON.stringify(order.preparedActions)}::text::jsonb,
+              ${order.expiresAt}, ${order.leverage}, ${order.marginUsd}, ${order.reduceOnly},
+              ${order.marketType}, ${order.orderType}, ${order.limitPrice})
+    `;
+  } finally {
+    await connection.end();
+  }
+}
+
+/** Moves an unexpired prepared order to submitting exactly once, so it can only be sent once. */
+export async function claimHyperliquidOrder(connectionString: string, id: string, subject: string) {
+  const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
+  try {
+    const [row] = await connection`
+      UPDATE market_live_orders SET status = 'submitting', updated_at = now()
+      WHERE id = ${id} AND subject = ${subject} AND venue = 'hyperliquid'
+        AND status = 'prepared' AND expires_at > now()
+      RETURNING id, symbol, side, quantity::text, client_order_id AS "clientOrderId",
+                account_address AS "accountAddress", prepared_actions AS "preparedActions",
+                leverage::text, reduce_only AS "reduceOnly"
+    `;
+    return row
+      ? {
+          id: String(row.id),
+          symbol: String(row.symbol),
+          side: row.side as "buy" | "sell",
+          quantity: String(row.quantity),
+          clientOrderId: String(row.clientOrderId),
+          accountAddress: String(row.accountAddress),
+          preparedActions: row.preparedActions as unknown,
+          leverage: String(row.leverage),
+          reduceOnly: Boolean(row.reduceOnly),
+        }
+      : null;
+  } finally {
+    await connection.end();
+  }
+}
+
+/** Live Hyperliquid orders whose outcome was not confirmed when they were submitted. */
+export async function listUnreconciledHyperliquidOrders(connectionString: string, subject: string) {
+  const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
+  try {
+    const rows = await connection`
+      SELECT id, client_order_id AS "clientOrderId", account_address AS "accountAddress",
+             symbol, quantity::text, status, updated_at AS "updatedAt"
+      FROM market_live_orders
+      WHERE subject = ${subject} AND venue = 'hyperliquid'
+        AND (status = 'open'
+          OR (status IN ('submitting', 'unknown') AND updated_at < now() - interval '20 seconds'))
+      ORDER BY created_at DESC LIMIT 40
+    `;
+    return rows.map((row) => ({
+      id: String(row.id),
+      clientOrderId: String(row.clientOrderId),
+      accountAddress: String(row.accountAddress),
+      symbol: String(row.symbol),
+      quantity: String(row.quantity),
+      status: String(row.status),
+      updatedAt: new Date(row.updatedAt as string | Date),
+    }));
+  } finally {
+    await connection.end();
+  }
+}
+
+/** Marks prepared orders that were never signed as expired, so they leave the pending list. */
+export async function expireHyperliquidOrders(connectionString: string, subject: string) {
+  const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
+  try {
+    await connection`
+      UPDATE market_live_orders SET status = 'expired', updated_at = now()
+      WHERE subject = ${subject} AND venue = 'hyperliquid' AND status = 'prepared'
+        AND expires_at <= now()
+    `;
   } finally {
     await connection.end();
   }
@@ -605,7 +773,7 @@ export async function updateMarketLiveOrder(
 export async function listMarketLiveOrders(connectionString: string, subject: string) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
   try {
-    return await connection`SELECT id, venue, symbol, side, quantity::text, client_order_id AS "clientOrderId", venue_order_id AS "venueOrderId", status, created_at AS "createdAt" FROM market_live_orders WHERE subject = ${subject} ORDER BY created_at DESC LIMIT 50`;
+    return await connection`SELECT id, venue, symbol, side, quantity::text, client_order_id AS "clientOrderId", venue_order_id AS "venueOrderId", status, fill_price::text AS "fillPrice", fee_usd::text AS "feeUsd", leverage::text, margin_usd::text AS "marginUsd", reduce_only AS "reduceOnly", market_type AS "marketType", order_type AS "orderType", limit_price::text AS "limitPrice", created_at AS "createdAt" FROM market_live_orders WHERE subject = ${subject} AND status <> 'prepared' AND status <> 'expired' ORDER BY created_at DESC LIMIT 50`;
   } finally {
     await connection.end();
   }

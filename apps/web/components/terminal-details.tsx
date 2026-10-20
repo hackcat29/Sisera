@@ -2,11 +2,15 @@
 
 import { useId, useState } from "react";
 import type { MarketIntelligence } from "../lib/api";
+import { PerpPositions } from "./perp-positions";
 
-const tabs = ["Signals", "Positions & orders"] as const;
+const tabs = ["Positions & orders", "Signals"] as const;
 
-export function TerminalDetails({ intelligence }: { intelligence: MarketIntelligence | null }) {
-  const [active, setActive] = useState<(typeof tabs)[number]>("Signals");
+export function TerminalDetails({
+  intelligence,
+  coin,
+}: { intelligence: MarketIntelligence | null; coin: string }) {
+  const [active, setActive] = useState<(typeof tabs)[number]>("Positions & orders");
   const id = useId();
 
   return (
@@ -38,7 +42,7 @@ export function TerminalDetails({ intelligence }: { intelligence: MarketIntellig
           ))}
         </div>
         <span className="hidden font-mono text-[10px] uppercase tracking-wide text-slate-500 sm:block">
-          {active === "Signals" ? "Derived from verified candles" : "Paper workspace"}
+          {active === "Signals" ? "Derived from verified candles" : "Your Hyperliquid account"}
         </span>
       </div>
       <div
@@ -94,14 +98,7 @@ export function TerminalDetails({ intelligence }: { intelligence: MarketIntellig
             </p>
           )
         ) : (
-          <div className="grid h-32 place-items-center text-center">
-            <div>
-              <p className="text-sm font-medium text-slate-200">No reconciled account connected</p>
-              <p className="mt-2 text-xs text-slate-400">
-                Positions and orders will appear after portfolio identity and balances are verified.
-              </p>
-            </div>
-          </div>
+          <PerpPositions activeCoin={coin} />
         )}
       </div>
     </section>

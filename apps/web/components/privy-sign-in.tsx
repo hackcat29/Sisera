@@ -341,9 +341,11 @@ export function PrivySignIn() {
             </div>
             <div>
               <p className="text-xs font-semibold text-white group-hover:text-purple-200">
-                Connect Solana Wallet
+                Connect a wallet
               </p>
-              <p className="text-[11px] text-slate-400">Phantom, Solflare, Backpack, or Ledger</p>
+              <p className="text-[11px] text-slate-400">
+                Phantom, Solflare, Backpack, MetaMask, Rabby and more
+              </p>
             </div>
           </div>
           <ChevronRight
@@ -402,8 +404,8 @@ export function PrivySignIn() {
         <div className="flex items-start gap-2">
           <ShieldCheck size={14} className="mt-0.5 shrink-0 text-bronze-400" />
           <span className="leading-relaxed">
-            Non-custodial cryptographic session. Autonomous agents submit structured trade proposals
-            governed by deterministic pre-trade risk policies.
+            You get your own Solana and EVM wallets in seconds. Only you control your funds, and
+            every order is checked against your risk limits before it is placed.
           </span>
         </div>
       </div>

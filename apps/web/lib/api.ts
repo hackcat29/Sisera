@@ -36,10 +36,19 @@ export type SolanaWallet = {
     name: string | null;
     rawBalance: string;
     decimals: number;
+    icon?: string | null;
+    verified?: boolean;
+    /** Likely spam: unverified and imitating another token or impossible to sell. */
+    suspicious?: boolean;
+    priceUsd?: number | null;
+    valueUsd?: number | null;
   }>;
   fetchedAt: string;
   source: "helius-das" | "solana-rpc";
   reconciled: false;
+  solPriceUsd?: number | null;
+  solValueUsd?: number | null;
+  totalValueUsd?: number;
 };
 export type HyperEvmWallet = {
   address: string;

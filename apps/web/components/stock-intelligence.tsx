@@ -47,6 +47,7 @@ export async function StockIntelligence() {
         description="Find price differences, company news and market context for the stocks you follow."
         actions={
           <Link
+            prefetch={false}
             href="/intelligence?universe=perps"
             className="rounded border border-line px-3 py-2 text-xs text-slate-400 hover:text-white"
           >
@@ -60,6 +61,7 @@ export async function StockIntelligence() {
           <div className="mt-3 flex flex-wrap gap-2">
             {publicStocks.slice(0, 12).map((stock) => (
               <Link
+                prefetch={false}
                 key={stock.mint}
                 href={`/stocks/${encodeURIComponent(stock.symbol)}`}
                 className="rounded border border-line px-3 py-2 text-xs text-slate-300 hover:text-bronze-300"
@@ -104,6 +106,7 @@ export async function StockIntelligence() {
                       >
                         <td className="px-5 py-3">
                           <Link
+                            prefetch={false}
                             href={`/private-markets/${encodeURIComponent(asset.instrument.baseAsset)}`}
                             className="inline-flex items-center gap-1 font-semibold text-slate-100 hover:text-bronze-300"
                           >

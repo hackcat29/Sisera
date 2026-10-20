@@ -29,6 +29,11 @@ export async function ogFonts() {
   ];
 }
 
+/** A Sisera mascot sticker as a data URL, for generated share cards. */
+export async function stickerDataUrl(name: string) {
+  return `data:image/png;base64,${(await asset(`stickers/${name}.png`)).toString("base64")}`;
+}
+
 export async function ribbonDataUrl() {
   return `data:image/jpeg;base64,${(await asset("ribbon.jpg")).toString("base64")}`;
 }

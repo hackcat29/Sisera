@@ -4,6 +4,7 @@ import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import type { ApiConfig } from "./config.js";
 import type { HeliusClient } from "./helius.js";
 import { PantaPredictionTradingClient } from "./panta-prediction.js";
+import { SolanaFeeCollector } from "./solana-fee.js";
 import { TradeRejection, verifySignedSwap } from "./solana-trading.js";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -12,6 +13,7 @@ export class PredictionTradingService {
   private readonly privy: PrivyClient | null;
   private readonly panta: PantaPredictionTradingClient;
   private readonly connection: Connection;
+  private readonly fees: SolanaFeeCollector;
 
   constructor(
     private readonly config: ApiConfig,
@@ -30,6 +32,12 @@ export class PredictionTradingService {
       config.PANTA_PROGRAM_ID,
     );
     this.connection = new Connection(rpcUrl, "confirmed");
+    this.fees = new SolanaFeeCollector(
+      this.connection,
+      config.SISERA_SOLANA_FEE_ACCOUNT
+        ? { feeAccount: config.SISERA_SOLANA_FEE_ACCOUNT, bps: config.SISERA_PREDICTION_FEE_BPS }
+        : undefined,
+    );
   }
 
   async prepare(input: {
@@ -57,7 +65,7 @@ export class PredictionTradingService {
       this.helius.getTokenBalance(input.wallet, USDC),
       this.helius.getSolLamports(input.wallet),
     ]);
-    if (BigInt(usdc.rawBalance) < deposit)
+    if (BigInt(usdc.rawBalance) < deposit + this.fees.feeFor(deposit))
       throw new TradeRejection(
         "Your wallet has insufficient USDC. Swap a token to USDC from your Portfolio first.",
       );
@@ -69,6 +77,8 @@ export class PredictionTradingService {
       isYes: input.outcome === "yes",
       depositAmount: input.depositAmount,
     });
+    // Sisera's fee is a USDC transfer added to the order, shown to the user before they sign.
+    const charged = await this.fees.apply(prepared.transaction, input.wallet, deposit);
     const id = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 45_000);
     await savePredictionOrder(this.config.DATABASE_URL, {
@@ -80,14 +90,15 @@ export class PredictionTradingService {
       outcome: input.outcome,
       depositAmount: input.depositAmount,
       orderPubkey: prepared.order.orderPubkey,
-      unsignedTransaction: prepared.transaction,
+      unsignedTransaction: charged.transaction,
       expiresAt,
     });
     return {
       orderId: id,
       wallet: input.wallet,
-      transaction: prepared.transaction,
+      transaction: charged.transaction,
       orderPubkey: prepared.order.orderPubkey,
+      feeUsd: (Number(charged.feeMicroUsdc) / 1e6).toFixed(2),
       priceUsd: prepared.priceUsd,
       expiresAt: expiresAt.toISOString(),
     };

@@ -19,6 +19,8 @@ import type { XStocksClient } from "./xstocks.js";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const MAX_USD = "500";
+/** Jupiter sponsors network fees for wallets holding less than this much SOL. */
+export const GASLESS_SOL_THRESHOLD = 10_000_000n;
 /** A paper trade may use the whole simulated account. */
 const MAX_PAPER_USD = 10_000;
 
@@ -31,6 +33,9 @@ export class TradeRejection extends Error {
   constructor(
     message: string,
     readonly statusCode = 422,
+    /** A machine-readable reason clients can act on, such as a missing approval. */
+    readonly code = "trade_unavailable",
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -287,12 +292,23 @@ export class SolanaTradingService {
       throw new TradeRejection("Your wallet does not have enough balance for this trade.");
     if (BigInt(solLamports) < 1_000_000n)
       throw new TradeRejection("Add a little SOL to your wallet for network fees.");
+    // Jupiter only sponsors gas without a referral fee, so wallets that need gasless pay none.
+    const referral =
+      this.config.SISERA_JUPITER_REFERRAL_ACCOUNT &&
+      this.config.SISERA_JUPITER_TRADE_FEE_BPS > 0 &&
+      BigInt(solLamports) >= GASLESS_SOL_THRESHOLD
+        ? {
+            account: this.config.SISERA_JUPITER_REFERRAL_ACCOUNT,
+            feeBps: this.config.SISERA_JUPITER_TRADE_FEE_BPS,
+          }
+        : undefined;
     const quote = await this.jupiter.order(
       inputMint,
       outputMint,
       input.amount,
       input.wallet,
       input.slippageBps ?? 100,
+      referral,
     );
     if (
       quote.inputMint !== inputMint ||

@@ -1,4 +1,9 @@
-import { BridgeUnavailable, EvmSwapQuoteInput, type RelayBridgeClient } from "./bridge.js";
+import {
+  BridgeUnavailable,
+  EvmSwapQuoteInput,
+  HYPERLIQUID_CHAIN_ID,
+  type RelayBridgeClient,
+} from "./bridge.js";
 import { EVM_SWAP_CHAINS, type EvmAssetClient, NATIVE_TOKEN } from "./evm-assets.js";
 
 /**
@@ -42,6 +47,9 @@ export class EvmSwapService {
     const output = Number(quote.outputAmountUsdc);
     if (!(output >= 1))
       throw new BridgeUnavailable("This swap is too small. Swap at least $1.", 422);
+    // Hyperliquid does not credit deposits under 5 USDC, so they would be lost.
+    if (input.destinationChainId === HYPERLIQUID_CHAIN_ID && output < 5)
+      throw new BridgeUnavailable("Hyperliquid deposits must be at least 5 USDC.", 422);
     if (output > this.maxOutputUsd)
       throw new BridgeUnavailable(
         `Swaps are limited to $${this.maxOutputUsd.toLocaleString("en-US")} each. Swap a smaller amount.`,

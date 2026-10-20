@@ -58,18 +58,19 @@ import {
 import { applyOrderEvent, createOrderRecord } from "@sisera/oms";
 import { analyzeCandles } from "@sisera/quant";
 import { evaluatePreTradeRisk } from "@sisera/risk";
+import Decimal from "decimal.js";
 import Fastify, { type FastifyReply } from "fastify";
 import { Counter, Histogram, Registry, collectDefaultMetrics } from "prom-client";
 import { z } from "zod";
 import { AgentDraftInput, compileAgentDraft } from "./agent-governance.js";
 import { agentTemplates } from "./agent-templates.js";
 import { createAuthenticator, requirePermission } from "./auth.js";
-import { BinanceTradingClient } from "./binance-trading.js";
 import {
   BridgeQuoteInput,
   BridgeUnavailable,
   EvmSwapQuoteInput,
   RelayBridgeClient,
+  SOLANA_CHAIN_ID,
 } from "./bridge.js";
 import { ClawpumpClient, ClawpumpDirectory, ClawpumpError } from "./clawpump.js";
 import { CoinMarketCapClient } from "./coinmarketcap.js";
@@ -81,6 +82,8 @@ import { GeckoTerminalCandles } from "./geckoterminal.js";
 import { parseHeliusWebhook, validWebhookSecret } from "./helius-webhook.js";
 import { HeliusClient } from "./helius.js";
 import { HyperEvmWalletClient } from "./hyperevm.js";
+import { HyperliquidDepositService } from "./hyperliquid-deposit.js";
+import { HyperliquidTradingService } from "./hyperliquid-trading.js";
 import { JupiterQuoteClient } from "./jupiter.js";
 import { LivePriceHub } from "./live-prices.js";
 import { PaperOrderRejection, settleMarketPaperOrder } from "./market-paper.js";
@@ -120,6 +123,7 @@ import { SolanaConvertService, USDC_MINT } from "./solana-convert.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { StockNewsClient } from "./stock-news.js";
 import { HeliusEnhancedTransaction, SiseraTelegramBuyBot } from "./telegram-buybot.js";
+import { TokenValuer } from "./token-valuation.js";
 import { type WalletChain, createWalletOwnershipChecker } from "./wallet-ownership.js";
 import { XStocksClient } from "./xstocks.js";
 
@@ -226,6 +230,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       : undefined,
   );
   const hyperEvmWallet = new HyperEvmWalletClient();
+  const tokenValuer = new TokenValuer(config.JUPITER_API_KEY);
   const clawpump = config.CLAWPUMP_API_KEY ? new ClawpumpClient(config.CLAWPUMP_API_KEY) : null;
   const jupiter = config.JUPITER_API_KEY ? new JupiterQuoteClient(config.JUPITER_API_KEY) : null;
   // Agent tokens are resolved through the catalog, which is constructed once live prices exist.
@@ -248,6 +253,13 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     helius,
     jupiter,
     maxNotionalUsd: config.SISERA_SWAP_MAX_USD,
+    referral:
+      config.SISERA_JUPITER_REFERRAL_ACCOUNT && config.SISERA_JUPITER_CONVERT_FEE_BPS > 0
+        ? {
+            account: config.SISERA_JUPITER_REFERRAL_ACCOUNT,
+            feeBps: config.SISERA_JUPITER_CONVERT_FEE_BPS,
+          }
+        : undefined,
     trackedAsset: async (mint) => {
       if (!catalogRef) throw new Error("Asset catalog is not ready");
       return (await catalogRef.byMint(mint))?.kind ?? null;
@@ -268,10 +280,44 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       config.PRIVY_APP_SECRET &&
       config.HELIUS_API_KEY,
   );
-  const binanceTrading = new BinanceTradingClient();
-  const bridge = new RelayBridgeClient(config.RELAY_API_KEY);
+  const builder = config.SISERA_BUILDER_ADDRESS
+    ? {
+        address: config.SISERA_BUILDER_ADDRESS,
+        perpBps: config.SISERA_BUILDER_FEE_PERP_BPS,
+        spotBps: config.SISERA_BUILDER_FEE_SPOT_BPS,
+      }
+    : undefined;
+  const hyperliquidTrading = new HyperliquidTradingService({
+    databaseUrl: config.DATABASE_URL,
+    maxLeverage: config.SISERA_PERP_MAX_LEVERAGE,
+    maxNotionalUsd: config.SISERA_PERP_MAX_NOTIONAL_USD,
+    builder,
+  });
+  const hyperliquidLiveReady = Boolean(
+    config.SISERA_LIVE_HYPERLIQUID_ENABLED &&
+      config.DATABASE_URL &&
+      config.PRIVY_APP_ID &&
+      config.PRIVY_APP_SECRET,
+  );
+  const bridge = new RelayBridgeClient(
+    config.RELAY_API_KEY,
+    config.SISERA_RELAY_FEE_RECIPIENT
+      ? {
+          recipient: config.SISERA_RELAY_FEE_RECIPIENT,
+          swapBps: config.SISERA_RELAY_SWAP_FEE_BPS,
+          bridgeBps: config.SISERA_RELAY_BRIDGE_FEE_BPS,
+        }
+      : undefined,
+  );
   const evmAssets = new EvmAssetClient(config.SISERA_EVM_RPC_URLS);
   const evmSwap = new EvmSwapService(bridge, evmAssets, config.SISERA_SWAP_MAX_USD);
+  const hyperliquidDeposits = new HyperliquidDepositService({
+    databaseUrl: config.DATABASE_URL,
+    relay: bridge,
+    helius,
+    rpcUrl: solanaRpcUrl,
+    maxUsd: config.SISERA_SWAP_MAX_USD,
+  });
   const social = new SocialFeedClient({
     xBearer: config.SISERA_X_BEARER_TOKEN,
     xAccounts: config.SISERA_X_TRACKED_ACCOUNTS,
@@ -395,13 +441,25 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     live: {
       solana: solanaLiveReady,
       predictions: predictionsLiveReady,
-      binance: config.SISERA_LIVE_BINANCE_ENABLED,
-      hyperliquid: false,
+      hyperliquid: hyperliquidLiveReady,
       launches: Boolean(config.SISERA_LIVE_LAUNCHES_ENABLED && config.DATABASE_URL),
       agents: Boolean(config.SISERA_LIVE_AGENTS_ENABLED && solanaLiveReady),
       delegatedSigning: delegatedSigner.available,
     },
     intelligence: { model: Boolean(research), clawpumpPartner: Boolean(clawpump) },
+    limits: {
+      perps: {
+        maxLeverage: config.SISERA_PERP_MAX_LEVERAGE,
+        maxNotionalUsd: config.SISERA_PERP_MAX_NOTIONAL_USD,
+      },
+      swapMaxUsd: config.SISERA_SWAP_MAX_USD,
+    },
+    fees: {
+      // Sisera's builder fee on Hyperliquid, which the user approves once before trading.
+      hyperliquid: builder
+        ? { builder: builder.address, perpBps: builder.perpBps, spotBps: builder.spotBps }
+        : null,
+    },
   }));
   app.get(
     "/v1/preferences",
@@ -573,7 +631,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             reply,
             request.principal.subject,
             input.recipient,
-            input.destinationChainId === 999 ? "ethereum" : "solana",
+            // Hyperliquid and HyperEVM recipients are EVM addresses; only Solana differs.
+            input.destinationChainId === SOLANA_CHAIN_ID ? "solana" : "ethereum",
           ))
         )
           return reply;
@@ -624,7 +683,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             reply,
             request.principal.subject,
             input.recipient,
-            input.destinationChainId === 999 ? "ethereum" : "solana",
+            // Hyperliquid and HyperEVM recipients are EVM addresses; only Solana differs.
+            input.destinationChainId === SOLANA_CHAIN_ID ? "solana" : "ethereum",
           ))
         )
           return reply;
@@ -863,6 +923,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           const snapshot = await hyperliquid.getSnapshot(symbol);
           return { price: Number(snapshot.last), observedAt: snapshot.quality.observedAt };
         },
+        hyperliquidSpot: (symbol) => hyperliquidTrading.spotMark(symbol),
         prediction: async (marketId, outcome) => {
           const market = await predictions.getMarket?.(marketId);
           const probability = market?.outcomes[outcome === "yes" ? 0 : 1]?.probability;
@@ -1818,6 +1879,160 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       return { data: await solanaTrading.execute(id, principal.subject, signedTransaction) };
     },
   );
+  app.post(
+    "/v1/hyperliquid/deposits/prepare",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const input = z
+        .object({
+          wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          recipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+          amountUsdc: z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+        })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, input.wallet, "solana")))
+        return reply;
+      if (!(await requireOwnedWallet(reply, principal.subject, input.recipient, "ethereum")))
+        return reply;
+      try {
+        return {
+          data: await hyperliquidDeposits.prepare({
+            ...input,
+            subject: principal.subject,
+            tenantId: principal.tenantId,
+          }),
+        };
+      } catch (error) {
+        if (error instanceof BridgeUnavailable)
+          return reply.code(error.status).send({ message: error.message });
+        request.log.warn({ error }, "Hyperliquid deposit quote failed");
+        return reply.code(503).send({ message: "Deposits are temporarily unavailable." });
+      }
+    },
+  );
+  app.post(
+    "/v1/hyperliquid/deposits/execute",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const input = z
+        .object({
+          requestId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+          signedTransaction: z.string().min(40).max(5000),
+        })
+        .parse(request.body);
+      try {
+        return {
+          data: await hyperliquidDeposits.execute({ ...input, subject: principal.subject }),
+        };
+      } catch (error) {
+        if (error instanceof BridgeUnavailable)
+          return reply.code(error.status).send({ message: error.message });
+        request.log.warn({ error }, "Hyperliquid deposit failed");
+        return reply.code(503).send({ message: "Deposits are temporarily unavailable." });
+      }
+    },
+  );
+  app.post(
+    "/v1/hyperliquid/orders/prepare",
+    {
+      preHandler: requirePermission("order:live:create"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      if (!hyperliquidLiveReady)
+        return reply
+          .code(503)
+          .send({ error: "live_trading_disabled", message: "Hyperliquid trading is paused." });
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const common = {
+        user: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+        coin: z.string().regex(/^[A-Za-z0-9@/]{1,24}$/),
+        slippageBps: z.number().int().min(5).max(500).optional(),
+      };
+      const pricing = {
+        orderType: z.enum(["market", "limit"]).default("market"),
+        limitPx: z.number().positive().optional(),
+        postOnly: z.boolean().optional(),
+      };
+      const input = z
+        .discriminatedUnion("kind", [
+          z.object({
+            ...common,
+            ...pricing,
+            kind: z.literal("open"),
+            side: z.enum(["buy", "sell"]),
+            marginUsd: z.number().positive().max(10_000_000),
+            leverage: z.number().int().min(1).max(100),
+            isCross: z.boolean(),
+            takeProfitPx: z.number().positive().optional(),
+            stopLossPx: z.number().positive().optional(),
+          }),
+          z.object({ ...common, kind: z.literal("close"), fraction: z.number().gt(0).max(1) }),
+          z.object({
+            ...common,
+            ...pricing,
+            kind: z.literal("spot"),
+            side: z.enum(["buy", "sell"]),
+            amountUsd: z.number().positive().max(10_000_000).optional(),
+            size: z
+              .string()
+              .regex(/^\d+(?:\.\d{1,10})?$/)
+              .optional(),
+          }),
+        ])
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, input.user, "ethereum")))
+        return reply;
+      return {
+        data: await hyperliquidTrading.prepare({
+          ...input,
+          subject: principal.subject,
+          tenantId: principal.tenantId,
+        }),
+      };
+    },
+  );
+  app.post(
+    "/v1/hyperliquid/orders/:id/execute",
+    {
+      preHandler: requirePermission("order:live:create"),
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      if (!hyperliquidLiveReady)
+        return reply
+          .code(503)
+          .send({ error: "live_trading_disabled", message: "Hyperliquid trading is paused." });
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const { signatures } = z
+        .object({ signatures: z.array(z.unknown()).min(1).max(2) })
+        .parse(request.body);
+      return {
+        data: await hyperliquidTrading.execute({
+          subject: principal.subject,
+          orderId: id,
+          signatures,
+        }),
+      };
+    },
+  );
   app.get(
     "/v1/solana/convert/quote",
     {
@@ -1935,7 +2150,25 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       const { address } = z
         .object({ address: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/) })
         .parse(request.params);
-      return { data: await helius.getWallet(address) };
+      const wallet = await helius.getWallet(address);
+      // Price every token and flag likely spam, so stablecoins count and fake airdrops do not.
+      const [holdings, solPriceUsd] = await Promise.all([
+        tokenValuer.value(wallet.holdings),
+        tokenValuer.solPrice().catch(() => null),
+      ]);
+      const solValueUsd =
+        solPriceUsd == null ? null : (Number(wallet.solLamports) / 1e9) * solPriceUsd;
+      return {
+        data: {
+          ...wallet,
+          holdings,
+          solPriceUsd,
+          solValueUsd,
+          totalValueUsd:
+            holdings.reduce((sum, holding) => sum + (holding.valueUsd ?? 0), 0) +
+            (solValueUsd ?? 0),
+        },
+      };
     },
   );
   app.get("/metrics", async (_request, reply) =>
@@ -2150,7 +2383,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
               : query.sort === "contested"
                 ? (a.pricingAvailable === false ? 2 : Math.abs(yes(a) - 0.5)) -
                   (b.pricingAvailable === false ? 2 : Math.abs(yes(b) - 0.5))
-                : (b.volumeUsd ?? 0) - (a.volumeUsd ?? 0),
+                : (b.volumeUsd ?? 0) - (a.volumeUsd ?? 0) ||
+                  // With equal volume, markets that already show a price lead, then the soonest to close.
+                  Number(a.pricingAvailable === false) - Number(b.pricingAvailable === false) ||
+                  Date.parse(a.closesAt ?? "") - Date.parse(b.closesAt ?? ""),
           );
         return {
           // List views omit resolution rules; the market detail route returns them in full.
@@ -2412,9 +2648,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       const principal = request.principal;
       if (!principal) return reply.code(401).send({ error: "account_required" });
       if (!config.DATABASE_URL)
-        return reply
-          .code(503)
-          .send({ error: "persistence_unavailable", message: "Paper ledger is not configured." });
+        return reply.code(503).send({
+          error: "persistence_unavailable",
+          message: "Practice trading is unavailable right now. Try again shortly.",
+        });
       const input = z
         .object({
           venue: z.enum(["binance", "hyperliquid"]),
@@ -2480,86 +2717,17 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     }),
   );
 
-  app.post(
-    "/v1/market-orders/binance/live",
-    {
-      preHandler: requirePermission("order:live:create"),
-      config: { rateLimit: { max: 4, timeWindow: "1 minute" } },
-    },
-    async (request, reply) => {
-      if (!config.SISERA_LIVE_BINANCE_ENABLED)
-        return reply
-          .code(503)
-          .send({ error: "live_trading_disabled", message: "Binance live trading is paused." });
-      const principal = request.principal;
-      if (!principal?.subject.startsWith("privy:"))
-        return reply.code(403).send({ error: "account_required" });
-      if (!config.DATABASE_URL)
-        return reply.code(503).send({
-          error: "persistence_unavailable",
-          message: "Order audit ledger is not configured.",
-        });
-      const input = z
-        .object({
-          apiKey: z.string().min(16).max(256),
-          apiSecret: z.string().min(16).max(256),
-          symbol: z.string().regex(/^[A-Z0-9]{5,20}$/),
-          side: z.enum(["buy", "sell"]),
-          quantity: z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/),
-        })
-        .parse(request.body);
-      const quote = await marketData.getSnapshot(input.symbol);
-      if (
-        quote.quality.status !== "live" ||
-        Date.now() - Date.parse(quote.quality.observedAt) > 15_000
-      )
-        return reply
-          .code(503)
-          .send({ error: "stale_quote", message: "A fresh Binance quote is required." });
-      const id = crypto.randomUUID();
-      const clientOrderId = `sis_${id.replaceAll("-", "")}`;
-      await createMarketLiveOrder(config.DATABASE_URL, {
-        id,
-        clientOrderId,
-        tenantId: principal.tenantId,
-        subject: principal.subject,
-        venue: "binance",
-        symbol: input.symbol,
-        side: input.side,
-        quantity: input.quantity,
-      });
-      try {
-        const result = await binanceTrading.placeMarketOrder({
-          ...input,
-          indicativePrice: input.side === "buy" ? quote.ask : quote.bid,
-          clientOrderId,
-        });
-        await updateMarketLiveOrder(
-          config.DATABASE_URL,
-          id,
-          result.status === "FILLED" ? "filled" : "unknown",
-          String(result.orderId),
-        );
-        return { data: { id, venue: "binance", ...result } };
-      } catch (error) {
-        await updateMarketLiveOrder(
-          config.DATABASE_URL,
-          id,
-          error instanceof TradeRejection && error.statusCode === 504 ? "unknown" : "rejected",
-        ).catch(() => {});
-        throw error;
-      }
-    },
-  );
   app.get(
     "/v1/market-orders/live",
     { preHandler: requirePermission("portfolio:read") },
-    async (request) => ({
-      data:
-        config.DATABASE_URL && request.principal
-          ? await listMarketLiveOrders(config.DATABASE_URL, request.principal.subject)
-          : [],
-    }),
+    async (request) => {
+      if (!config.DATABASE_URL || !request.principal) return { data: [] };
+      // Orders whose outcome was unclear when submitted are settled before they are listed.
+      await hyperliquidTrading
+        .reconcile(request.principal.subject)
+        .catch((error) => request.log.warn({ error }, "Hyperliquid reconciliation failed"));
+      return { data: await listMarketLiveOrders(config.DATABASE_URL, request.principal.subject) };
+    },
   );
 
   app.post(
@@ -2618,7 +2786,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     if (error instanceof TradeRejection) {
       return reply
         .code(error.statusCode)
-        .send({ error: "trade_unavailable", message: error.message });
+        .send({ error: error.code, message: error.message, ...(error.details ?? {}) });
     }
     if (error instanceof PaperOrderRejection)
       return reply.code(422).send({ error: "paper_order_rejected", message: error.message });

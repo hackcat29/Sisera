@@ -157,7 +157,13 @@ export function PortfolioConnect({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {address ? (
+      {authenticated && !privyAddress ? (
+        // Signed-in users trade from wallets linked to their account, which Privy is creating.
+        <span className="inline-flex h-9 items-center gap-2 rounded-md border border-line px-3 text-[12px] text-slate-400">
+          <WalletCards size={14} />
+          {compact ? "Setting up…" : "Setting up wallet…"}
+        </span>
+      ) : address ? (
         <button
           type="button"
           onClick={() => setDropdownOpen((prev) => !prev)}

@@ -248,6 +248,7 @@ export default async function PredictionMarketPage({
               <div className="divide-y divide-line">
                 {research.related.slice(0, 20).map((item) => (
                   <Link
+                    prefetch={false}
                     key={item.id}
                     href={`/predictions/${encodeURIComponent(item.id)}`}
                     className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px] hover:bg-white/[.03]"

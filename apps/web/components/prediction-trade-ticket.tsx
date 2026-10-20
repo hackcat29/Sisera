@@ -13,6 +13,8 @@ type Prepared = {
   orderPubkey: string;
   priceUsd: number;
   expiresAt: string;
+  /** Sisera's fee, added to the deposit as a separate USDC transfer. */
+  feeUsd?: string;
 };
 
 export function PredictionTradeTicket({ marketId }: { marketId: string }) {
@@ -186,6 +188,9 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
       {prepared && (
         <p className="mt-2 text-amber-200">
           Review {outcome.toUpperCase()} at about ${prepared.priceUsd.toFixed(3)} per contract.
+          {Number(prepared.feeUsd) > 0
+            ? ` Sisera fee $${prepared.feeUsd}, paid with the order.`
+            : ""}{" "}
           Wallet signature opens an order; a fill is not guaranteed.
         </p>
       )}

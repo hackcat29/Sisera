@@ -8,8 +8,8 @@ import { auth } from "../../../auth";
 import { DeltaBadge } from "../../../components/delta-badge";
 import { LivePerpPrice } from "../../../components/live-price";
 import { LiveRefresh } from "../../../components/live-refresh";
-import { MarketOrderTicket } from "../../../components/market-order-ticket";
 import { PerpMarketStrip } from "../../../components/perp-market-strip";
+import { PerpTradeTicket } from "../../../components/perp-trade-ticket";
 import { SignInToTrade } from "../../../components/sign-in-to-trade";
 import { TerminalDetails } from "../../../components/terminal-details";
 import { TradingChart } from "../../../components/trading-chart";
@@ -94,7 +94,7 @@ export default async function TerminalPage({
           >
             Hyperliquid perps
           </Link>
-          <Link href="/markets?venue=binance" className="rounded px-3 py-2 text-slate-400">
+          <Link href="/markets" className="rounded px-3 py-2 text-slate-400">
             Crypto spot →
           </Link>
           <span className="ml-auto text-[10px] text-slate-500">
@@ -167,8 +167,9 @@ export default async function TerminalPage({
           </div>
         </section>
 
+        {/* On small screens the ticket follows the chart, ahead of the order book. */}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_270px_300px]">
-          <div className="min-w-0">
+          <div className="order-1 min-w-0 xl:order-none">
             <TradingChart
               source={{ kind: venue === "hyperliquid" ? "hyperliquid" : "binance", id: symbol }}
               title={market?.instrument.displaySymbol ?? symbol}
@@ -189,7 +190,7 @@ export default async function TerminalPage({
             />
           </div>
 
-          <section className="min-h-[570px] overflow-hidden rounded-lg border border-line bg-panel">
+          <section className="order-3 overflow-hidden rounded-lg border border-line bg-panel xl:order-none xl:min-h-[570px]">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                 <BookOpen size={15} className="text-bronze-300" /> Order book
@@ -206,16 +207,14 @@ export default async function TerminalPage({
             )}
           </section>
 
-          <aside className="min-h-[570px] overflow-hidden rounded-lg border border-line bg-panel">
+          <aside className="order-2 overflow-hidden rounded-lg border border-line bg-panel xl:order-none xl:min-h-[570px]">
             {signedIn ? (
-              <MarketOrderTicket
-                venue="hyperliquid"
-                bid={snapshot?.bid}
-                ask={snapshot?.ask}
+              <PerpTradeTicket
+                coin={symbol.replace(/USDT$/, "")}
                 symbol={symbol}
-                quoteAsset={market?.instrument.quoteAsset ?? "USDT"}
-                quoteObservedAt={snapshot?.quality.observedAt}
-                quoteStatus={snapshot?.quality.status}
+                fallbackPrice={
+                  snapshot?.last != null ? Number(snapshot.last) : (reference?.priceUsd ?? null)
+                }
               />
             ) : (
               <SignInToTrade label={"perpetuals"} returnTo={"/terminal?venue=hyperliquid"} />
@@ -224,13 +223,14 @@ export default async function TerminalPage({
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <TerminalDetails intelligence={intelligence} />
+          <TerminalDetails intelligence={intelligence} coin={symbol.replace(/USDT$/, "")} />
           <section className="rounded-lg border border-line bg-panel p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
               <ShieldCheck size={16} className="text-bronze-300" /> Execution controls
             </div>
             <p className="mt-4 text-xs leading-5 text-slate-400">
-              Orders require a reconciled portfolio, mandate limits, and a fresh venue quote.
+              Every order is checked against your leverage and size limits at the live mark price
+              before it reaches Hyperliquid. Your trading key can trade but never withdraw.
             </p>
             <Link
               href="/risk"

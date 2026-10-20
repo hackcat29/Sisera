@@ -60,6 +60,7 @@ export async function TickerTape({
   const row = (hidden: boolean) =>
     items.map((item) => (
       <Link
+        prefetch={false}
         key={`${hidden ? "b" : "a"}-${item.href}`}
         href={item.href}
         tabIndex={hidden ? -1 : undefined}

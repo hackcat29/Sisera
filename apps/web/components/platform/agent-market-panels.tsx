@@ -67,7 +67,11 @@ export function AgentMarketPanels() {
               key={row.mint}
               className="flex items-center justify-between border-b border-line/50 px-4 py-2 text-xs last:border-0"
             >
-              <Link href={`/clawpump/${row.mint}`} className="text-bone hover:text-bronze-200">
+              <Link
+                prefetch={false}
+                href={`/clawpump/${row.mint}`}
+                className="text-bone hover:text-bronze-200"
+              >
                 {row.symbol} <span className="text-slate-500">/ {row.pairedStock.symbol}</span>
               </Link>
               <span className="num">
@@ -104,7 +108,11 @@ export function AgentMarketPanels() {
               key={row.mint}
               className="flex items-center justify-between border-b border-line/50 px-4 py-2 text-xs last:border-0"
             >
-              <Link href={`/clawpump/${row.mint}`} className="text-bone hover:text-bronze-200">
+              <Link
+                prefetch={false}
+                href={`/clawpump/${row.mint}`}
+                className="text-bone hover:text-bronze-200"
+              >
                 {row.symbol}
               </Link>
               <span className="num text-slate-400">
@@ -139,6 +147,7 @@ export function AgentMarketPanels() {
               <span className="text-slate-500">Gainers </span>
               {today.data.gainers.slice(0, 5).map((row) => (
                 <Link
+                  prefetch={false}
                   key={row.mint}
                   href={`/clawpump/${row.mint}`}
                   className="mr-2 hover:text-bronze-200"
@@ -151,6 +160,7 @@ export function AgentMarketPanels() {
               <span className="text-slate-500">Decliners </span>
               {today.data.losers.slice(0, 5).map((row) => (
                 <Link
+                  prefetch={false}
                   key={row.mint}
                   href={`/clawpump/${row.mint}`}
                   className="mr-2 hover:text-bronze-200"
@@ -163,6 +173,7 @@ export function AgentMarketPanels() {
               <span className="text-slate-500">New in 24h </span>
               {today.data.newLaunches.slice(0, 8).map((row) => (
                 <Link
+                  prefetch={false}
                   key={row.mint}
                   href={`/clawpump/${row.mint}`}
                   className="mr-2 hover:text-bronze-200"

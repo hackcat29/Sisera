@@ -33,6 +33,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { FundAccountButton } from "./fund-account";
 import { MarketAutoRefresh } from "./market-auto-refresh";
 import { MarketSession } from "./market-session";
 import { OperatorProfile } from "./operator-profile";
@@ -54,7 +55,7 @@ const navigation = [
     items: [
       { href: "/stocks", label: "Stocks", hint: "⌥1", icon: CandlestickChart },
       { href: "/private-markets", label: "Private markets", hint: "⌥2", icon: Landmark },
-      { href: "/markets?venue=binance", label: "Crypto spot", hint: "⌥3", icon: ListFilter },
+      { href: "/markets", label: "Crypto spot", hint: "⌥3", icon: ListFilter },
       { href: "/terminal?venue=hyperliquid", label: "Perpetuals", hint: "", icon: Activity },
       { href: "/predictions", label: "Predictions", hint: "", icon: Target },
       { href: "/clawpump", label: "Agent markets", hint: "", icon: Boxes },
@@ -192,15 +193,19 @@ export function OperatorShell({
     }
     router.push(href);
   };
+  // A spot pair page (/spot/BTC) sits under Crypto spot (/markets) in the breadcrumb.
+  const routePath = pathname.startsWith("/spot/")
+    ? pathname.replace(/^\/spot/, "/markets")
+    : pathname;
   const current = navigation
     .flatMap((group) => group.items.map((item) => ({ group: group.label, ...item })))
     .find((item) => {
       const route = routeOf(item.href);
-      return pathname === route || pathname.startsWith(`${route}/`);
+      return routePath === route || routePath.startsWith(`${route}/`);
     });
   const detail =
-    current && pathname !== routeOf(current.href)
-      ? decodeURIComponent(pathname.slice(routeOf(current.href).length + 1))
+    current && routePath !== routeOf(current.href)
+      ? decodeURIComponent(routePath.slice(routeOf(current.href).length + 1))
       : null;
   const sidebarWidth = collapsed ? "lg:ml-[72px]" : "lg:ml-[232px]";
 
@@ -343,8 +348,12 @@ export function OperatorShell({
           <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
             {current ? (
               <>
-                <span className="hidden text-slate-400 sm:inline">{current.group}</span>
-                <span className="hidden text-slate-500 sm:inline">/</span>
+                {current.group !== current.label && (
+                  <>
+                    <span className="hidden text-slate-400 sm:inline">{current.group}</span>
+                    <span className="hidden text-slate-500 sm:inline">/</span>
+                  </>
+                )}
                 {detail ? (
                   <>
                     <Link href={current.href} className="truncate text-slate-300 hover:text-white">
@@ -363,7 +372,10 @@ export function OperatorShell({
                   "Terminal"}
               </span>
             )}
-            <MarketSession />
+            {/* US trading hours only matter for tokenized stocks; crypto trades around the clock. */}
+            {(pathname.startsWith("/stocks") || pathname.startsWith("/private-markets")) && (
+              <MarketSession />
+            )}
           </nav>
           <div className="flex items-center gap-2">
             <button
@@ -379,6 +391,7 @@ export function OperatorShell({
             </button>
             {signedIn ? (
               <>
+                <FundAccountButton compact className="hidden sm:inline-flex" />
                 <PortfolioConnect compact />
                 <OperatorProfile operator={operator} localMode={localMode} />
               </>

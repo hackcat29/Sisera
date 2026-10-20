@@ -125,6 +125,7 @@ export default async function PredictionsPage({
           <div className="flex border border-line">
             {sorts.map((option) => (
               <Link
+                prefetch={false}
                 key={option.id}
                 href={link({ sort: option.id, page: 0 })}
                 className={`px-3 py-2 text-xs ${sort === option.id ? "bg-bronze-300 text-ink" : "text-slate-300 hover:text-bone"}`}
@@ -140,6 +141,7 @@ export default async function PredictionsPage({
         >
           {[["all", allCount] as const, ...categories].map(([name, count]) => (
             <Link
+              prefetch={false}
               key={name}
               href={link({ category: name, page: 0 })}
               className={`shrink-0 border-b-2 px-3 py-2 text-[12px] capitalize ${category === name ? "border-bronze-300 text-bone" : "border-transparent text-slate-400 hover:text-slate-200"}`}
@@ -171,37 +173,50 @@ export default async function PredictionsPage({
                       >
                         <td className="px-5 py-2.5">
                           <Link
+                            prefetch={false}
                             href={`/predictions/${encodeURIComponent(market.id)}`}
                             className="block"
                           >
                             <span className="line-clamp-1 font-medium text-bone">
                               {market.title}
                             </span>
-                            <span className="text-[11px] capitalize text-slate-400">
-                              {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+                            <span className="text-[11px] text-slate-400">
+                              <span className="capitalize">
+                                {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+                              </span>
                               {market.quality.source === "panta-onchain"
                                 ? market.quality.status === "stale"
-                                  ? " · Stale indicative prices"
+                                  ? " · Prices may be delayed"
                                   : " · Indicative prices"
                                 : market.pricingAvailable === false
-                                  ? " · Open for live pricing"
+                                  ? " · New market, priced when you open it"
                                   : " · View evidence"}
                             </span>
                           </Link>
                         </td>
                         <td className="px-5 py-2.5 text-right">
-                          <span className="num text-[var(--up)]">
-                            {market.pricingAvailable === false
-                              ? "—"
-                              : `${(probability * 100).toFixed(1)}%`}
-                          </span>
+                          {market.pricingAvailable === false ? (
+                            <Link
+                              href={`/predictions/${encodeURIComponent(market.id)}`}
+                              className="whitespace-nowrap text-[11px] text-bronze-300 hover:text-bronze-200"
+                            >
+                              Live quote →
+                            </Link>
+                          ) : (
+                            <span className="num text-[var(--up)]">
+                              {(probability * 100).toFixed(1)}%
+                            </span>
+                          )}
                         </td>
                         <td className="px-5 py-2.5 text-right">
-                          <span className="num text-[var(--down)]">
-                            {market.pricingAvailable === false
-                              ? "—"
-                              : `${(Number(market.outcomes[1]?.probability ?? 1 - probability) * 100).toFixed(1)}%`}
-                          </span>
+                          {market.pricingAvailable === false ? null : (
+                            <span className="num text-[var(--down)]">
+                              {(
+                                Number(market.outcomes[1]?.probability ?? 1 - probability) * 100
+                              ).toFixed(1)}
+                              %
+                            </span>
+                          )}
                         </td>
                         <td className="num px-5 py-2.5 text-right text-slate-300">
                           {compact(market.volumeUsd)}
