@@ -8,6 +8,9 @@ const nextConfig = {
   poweredByHeader: false,
   devIndicators: false,
   outputFileTracingRoot: fileURLToPath(new URL("../..", import.meta.url)),
+  async redirects() {
+    return [{ source: "/social", destination: "/intelligence", permanent: true }];
+  },
 };
 
 export default nextConfig;

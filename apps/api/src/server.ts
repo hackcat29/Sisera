@@ -10,6 +10,12 @@ const shutdown = async (signal: string) => {
   process.exit(0);
 };
 
+// A background fetch that fails without a handler must not take the whole API down with it: Node
+// exits on an unhandled rejection by default, which turned provider timeouts into outages.
+process.on("unhandledRejection", (reason) => {
+  app.log.error({ err: reason }, "unhandled promise rejection");
+});
+
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 

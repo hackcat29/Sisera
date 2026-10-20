@@ -1,7 +1,7 @@
 ---
 title: "Sisera AI Copilot, Takes & Macro Intelligence"
 sidebarTitle: "Sisera AI Copilot"
-description: "Conversational market analysis, structured stock assessments, forkable Takes, macro regimes, and live social feeds."
+description: "Conversational market analysis, structured stock assessments, forkable Takes, and macro regimes."
 icon: "sparkles"
 ---
 
@@ -46,15 +46,12 @@ Sisera introduces **Takes**—structured, verifiable market theses that pair a r
 
 ---
 
-## Macro Regimes & Live Social Feeds
+## Macro Regimes
 
-Alongside company-specific filings, Sisera contextualizes every trade within broader macro and social flows:
+Alongside company-specific filings, Sisera contextualizes every trade within broader macro flows:
 
-<CardGroup cols={2}>
+<CardGroup cols={1}>
   <Card title="Macro & Chain Regimes (/macro)" icon="globe">
     Tracks interest rate regimes, inflation series (FRED), macro event calendars (`GET /v1/intelligence/macro`), and live cross-chain TVL snapshots (`GET /v1/chains` via DeFiLlama) to classify overall market risk appetite (`GET /v1/macro-regime`).
-  </Card>
-  <Card title="Real-Time Social Feeds (/social)" icon="rss">
-    Aggregates live market chatter from X, Telegram, Reddit, and Discord (`GET /v1/social-feed`), mapping posts onto Catalog assets while explicitly isolating social sentiment from confirmed SEC filings.
   </Card>
 </CardGroup>

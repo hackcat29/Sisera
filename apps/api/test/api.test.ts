@@ -70,7 +70,6 @@ describe("control plane API", () => {
       "/v1/market-orders/paper",
       "/v1/solana/orders",
       "/v1/agents",
-      "/v1/social-feed",
       "/v1/solana/wallet/So11111111111111111111111111111111111111112",
     ]) {
       const response = await app.inject({ method: "GET", url });

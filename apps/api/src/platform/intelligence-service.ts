@@ -13,7 +13,6 @@ import {
 } from "@sisera/intelligence";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
-import type { SocialFeedClient } from "../social-feed.js";
 import type { StockNewsClient } from "../stock-news.js";
 import { AssetCatalog, type CatalogAsset } from "./catalog.js";
 import type { SecEdgarClient } from "./sec-edgar.js";
@@ -47,7 +46,7 @@ export type AssetIntelligence = {
 };
 
 /**
- * Collects news, regulatory filings, macro headlines and social posts, classifies every item and
+ * Collects news, regulatory filings and macro headlines, classifies every item and
  * clusters them into events. Events are persisted when a database is configured and kept in a
  * bounded in-memory store otherwise, so "what changed" works across requests.
  */
@@ -61,7 +60,6 @@ export class IntelligenceService {
     private readonly catalog: AssetCatalog,
     private readonly news: StockNewsClient,
     private readonly edgar: SecEdgarClient,
-    private readonly social: SocialFeedClient,
     private readonly databaseUrl: string | undefined,
   ) {}
 
@@ -99,10 +97,9 @@ export class IntelligenceService {
       asset.kind === "agent_token"
         ? `${asset.symbol} ${asset.name} clawpump`
         : asset.name.replace(/\bxstock\b/i, "").trim();
-    const [news, filings, social] = await Promise.allSettled([
+    const [news, filings] = await Promise.allSettled([
       this.news.search(searchName, ticker),
       ticker ? this.edgar.filings(ticker) : Promise.resolve([] as RawItem[]),
-      this.social.list(),
     ]);
     providers.news = news.status === "fulfilled" ? "live" : "unavailable";
     providers.filings = ticker
@@ -110,33 +107,13 @@ export class IntelligenceService {
         ? "live"
         : "unavailable"
       : "not_applicable";
-    providers.social = social.status === "fulfilled" ? "live" : "unavailable";
     const raw: RawItem[] = [
       ...(news.status === "fulfilled" ? news.value.data : []),
       ...(filings.status === "fulfilled" ? filings.value : []),
-      ...(social.status === "fulfilled"
-        ? social.value.posts.map(
-            (post): RawItem => ({
-              title: post.text.slice(0, 280),
-              summary: null,
-              url: post.url,
-              publishedAt: post.publishedAt,
-              publisher: `${post.platform}:${post.community}`,
-              provider: post.platform,
-              kind: "social",
-            }),
-          )
-        : []),
     ];
     const classified = dedupeByUrl(raw)
       .filter((item) => isUsableItem(item))
-      .map((item) => classifyItem(item, universe, item.kind === "social" ? undefined : pinned))
-      // Social posts are kept only when they actually mention the asset.
-      .filter(
-        (item) =>
-          item.kind !== "social" ||
-          item.assets.some((match) => match.key === asset.key && match.via !== "query"),
-      );
+      .map((item) => classifyItem(item, universe, pinned));
     const events = clusterEvents(classified).filter((event) =>
       event.assets.some((match) => match.key === asset.key),
     );

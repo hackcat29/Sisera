@@ -187,6 +187,48 @@ describe("stock provider boundaries", () => {
     expect(fetcher.mock.calls.some(([url]) => String(url).includes("price-data"))).toBe(false);
   });
 
+  it("keeps serving the last snapshot when a background refresh times out", async () => {
+    // In production this exact failure escaped as an unhandled rejection and exited the API.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const mint = "XsensupeZBdHxZtdnLptf1UfWpVyancWcit7qWFYZrJ";
+    let providerDown = false;
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      if (providerDown)
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      if (url.includes("/public/assets?"))
+        return {
+          ok: true,
+          json: async () => ({
+            nodes: [
+              {
+                name: "Xerox xStock",
+                symbol: "XRXx",
+                isTradingHalted: false,
+                underlying: { symbol: "XRX", type: "Equity" },
+                deployments: [{ address: mint, network: "Solana" }],
+              },
+            ],
+            page: { hasNextPage: false },
+          }),
+        };
+      return { ok: true, json: async () => [] };
+    });
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", record);
+    try {
+      const client = new XStocksClient(fetcher);
+      expect(await client.list()).toHaveLength(1);
+      providerDown = true;
+      vi.setSystemTime(Date.now() + 11 * 60_000);
+      expect(await client.list()).toHaveLength(1);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+  });
+
   it("accepts only the wallet signature on the original transaction message", () => {
     const signer = Keypair.generate();
     const message = new TransactionMessage({
