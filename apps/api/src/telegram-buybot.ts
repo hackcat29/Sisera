@@ -476,6 +476,7 @@ const BACKLOG_THRESHOLD = 5;
 const MAX_SEND_ATTEMPTS = 5;
 const SOL_PRICE_TTL_MS = 60_000;
 // The group's Rose bot already answers "ca", so the buybot leaves that to it.
+const COMMAND_LONG_POLL_SECONDS = 25;
 const BOT_COMMANDS = new Set(["/price", "/stats", "/burn"]);
 
 const JupiterPrice = z.record(z.string(), z.object({ usdPrice: z.number() }).nullable());
@@ -528,7 +529,7 @@ export class SiseraTelegramBuyBot {
   private draining: Promise<void> | null = null;
   private lastSentAt = 0;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private commandTimer: ReturnType<typeof setInterval> | null = null;
+  private commandAbort: AbortController | null = null;
   private lastUpdateId = 0;
   private initialized = false;
   private pollingInFlight = false;
@@ -973,10 +974,20 @@ export class SiseraTelegramBuyBot {
     }, this.pollIntervalMs);
 
     if (this.enableCommands) {
-      void this.seedTelegramUpdatesOffset();
-      this.commandTimer = setInterval(() => {
-        void this.pollTelegramCommands();
-      }, 5_000);
+      this.commandAbort = new AbortController();
+      void this.runCommandLoop(this.commandAbort.signal);
+    }
+  }
+
+  /**
+   * Long-polls Telegram so group commands are answered as soon as they arrive,
+   * backing off for a few seconds whenever a poll fails.
+   */
+  private async runCommandLoop(signal: AbortSignal): Promise<void> {
+    await this.seedTelegramUpdatesOffset();
+    while (!signal.aborted) {
+      const ok = await this.pollTelegramCommands(COMMAND_LONG_POLL_SECONDS, signal);
+      if (!ok && !signal.aborted) await this.sleep(5_000);
     }
   }
 
@@ -985,10 +996,8 @@ export class SiseraTelegramBuyBot {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-    if (this.commandTimer) {
-      clearInterval(this.commandTimer);
-      this.commandTimer = null;
-    }
+    this.commandAbort?.abort();
+    this.commandAbort = null;
   }
 
   async pollOnce(): Promise<number> {
@@ -1026,15 +1035,29 @@ export class SiseraTelegramBuyBot {
     }
   }
 
-  async pollTelegramCommands(): Promise<void> {
+  /**
+   * Fetches pending group commands, waiting up to `timeoutSeconds` for one to arrive.
+   * Returns false when the poll failed, so the caller can back off.
+   */
+  async pollTelegramCommands(timeoutSeconds = 0, signal?: AbortSignal): Promise<boolean> {
     try {
       const url = new URL(`https://api.telegram.org/bot${this.options.botToken}/getUpdates`);
       url.searchParams.set("offset", String(this.lastUpdateId));
       url.searchParams.set("limit", "10");
-      url.searchParams.set("timeout", "0");
+      url.searchParams.set("timeout", String(timeoutSeconds));
 
-      const response = await this.fetcher(url, { signal: AbortSignal.timeout(5_000) });
-      if (!response.ok) return;
+      const timeout = AbortSignal.timeout((timeoutSeconds + 10) * 1_000);
+      const response = await this.fetcher(url, {
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (!response.ok) {
+        // 409 means another copy of the bot (or a webhook) is reading this bot's updates.
+        this.options.logger?.warn(
+          { status: response.status },
+          "BuyBot could not read Telegram commands",
+        );
+        return false;
+      }
       const payload = (await response.json()) as {
         ok?: boolean;
         result?: Array<{
@@ -1069,8 +1092,10 @@ export class SiseraTelegramBuyBot {
           chatId: this.options.chatId,
         });
       }
+      return true;
     } catch {
-      // Non-fatal command polling error
+      // Network errors and aborts during shutdown are retried by the command loop
+      return false;
     }
   }
 }

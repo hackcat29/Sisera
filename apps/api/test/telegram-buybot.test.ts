@@ -319,7 +319,7 @@ describe("Sisera Telegram BuyBot", () => {
     }
 
     function makeBot(
-      telegram: (url: string, body: Record<string, unknown>) => Response,
+      telegram: (url: string, body: Record<string, unknown>) => Response | Promise<Response>,
       helius: (url: URL) => unknown = () => [],
     ) {
       const sent: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -447,6 +447,34 @@ describe("Sisera Telegram BuyBot", () => {
       expect(replies).toHaveLength(1);
       expect(replies[0]?.body).toMatchObject({ chat_id: "-100123456" });
       expect(String(replies[0]?.body.text)).toContain("LIVE MARKET SNAPSHOT");
+    });
+
+    it("long-polls for commands while running and stops cleanly", async () => {
+      const polls: string[] = [];
+      let delivered = false;
+      const { bot, sent } = makeBot((url) => {
+        if (!url.includes("getUpdates")) return ok();
+        const params = new URL(url).searchParams;
+        // The startup call skips commands sent before the bot started.
+        if (params.get("offset") === "-1") return ok();
+        polls.push(params.get("timeout") ?? "");
+        const empty = new Response(JSON.stringify({ ok: true, result: [] }), { status: 200 });
+        // Like Telegram, hold an empty long poll open instead of answering at once.
+        if (delivered) return new Promise((done) => setTimeout(() => done(empty), 50));
+        delivered = true;
+        const result = [{ update_id: 7, message: { chat: { id: -100123456 }, text: "/stats" } }];
+        return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+      });
+
+      await bot.start();
+      await vi.waitFor(() => {
+        expect(sent.some((call) => String(call.body.text).includes("LIVE MARKET SNAPSHOT"))).toBe(
+          true,
+        );
+      });
+      bot.stop();
+
+      expect(polls).toContain("25");
     });
   });
 });
