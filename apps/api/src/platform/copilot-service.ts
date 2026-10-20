@@ -377,7 +377,7 @@ export class CopilotService {
     return {
       text: lines.join("\n"),
       cards: [{ type: "changes", data: summary }],
-      sources: ["sisera-events", "news", "sec-edgar", "social"],
+      sources: ["sisera-events", "news", "sec-edgar"],
       narratable: true,
     };
   }

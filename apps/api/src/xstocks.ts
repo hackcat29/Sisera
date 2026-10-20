@@ -91,7 +91,12 @@ export class XStocksClient {
     this.pending ??= this.refresh().finally(() => {
       this.pending = null;
     });
-    if (this.cache) return this.cache.value;
+    if (this.cache) {
+      // Nobody awaits a background refresh, so its failure must be handled here: an unhandled
+      // rejection exits the API process. The stale snapshot keeps serving until the next try.
+      this.pending.catch(() => undefined);
+      return this.cache.value;
+    }
     return this.pending;
   }
 

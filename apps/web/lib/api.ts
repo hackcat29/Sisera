@@ -66,14 +66,6 @@ export type StockNewsItem = {
   publisher: string;
   provider: "gnews" | "finnhub" | "gdelt" | "marketaux" | "google-news" | "bing-news";
 };
-export type SocialPost = {
-  id: string;
-  platform: "x" | "telegram" | "reddit" | "discord";
-  community: string;
-  text: string;
-  url: string;
-  publishedAt: string;
-};
 export type PublicStock = {
   name: string;
   symbol: string;
@@ -479,14 +471,6 @@ export async function getStockNews(symbol: string, identity: ApiIdentity) {
     `/v1/stocks/${encodeURIComponent(symbol)}/news`,
     identity,
     9000,
-  );
-}
-
-export function getSocialFeed(identity: ApiIdentity) {
-  return getJson<{ data: SocialPost[]; sources: Record<string, string>; fetchedAt: string }>(
-    "/v1/social-feed",
-    identity,
-    14000,
   );
 }
 

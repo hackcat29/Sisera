@@ -118,7 +118,6 @@ import { predictionInsights } from "./prediction-insights.js";
 import { PredictionPaperRejection, settlePredictionPaperOrder } from "./prediction-paper.js";
 import { researchPredictionMarket } from "./prediction-research.js";
 import { PredictionTradingService } from "./prediction-trading.js";
-import { SocialFeedClient } from "./social-feed.js";
 import { SolanaConvertService, USDC_MINT } from "./solana-convert.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { StockNewsClient } from "./stock-news.js";
@@ -317,14 +316,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     helius,
     rpcUrl: solanaRpcUrl,
     maxUsd: config.SISERA_SWAP_MAX_USD,
-  });
-  const social = new SocialFeedClient({
-    xBearer: config.SISERA_X_BEARER_TOKEN,
-    xAccounts: config.SISERA_X_TRACKED_ACCOUNTS,
-    xDailyBudget: config.SISERA_X_MAX_DAILY_SPEND_USD,
-    telegramChannels: config.SISERA_TELEGRAM_NEWS_CHANNELS,
-    discordBotToken: config.SISERA_DISCORD_BOT_TOKEN,
-    discordChannelIds: config.SISERA_DISCORD_CHANNEL_IDS,
   });
   const predictionTrading = new PredictionTradingService(config, helius, solanaRpcUrl);
   const predictionPaperClient = new PantaPredictionTradingClient(
@@ -543,10 +534,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         : reply.code(404).send({ error: "alert_not_found" });
     },
   );
-  app.get("/v1/social-feed", { preHandler: requirePermission("market:read") }, async () => {
-    const feed = await social.list();
-    return { data: feed.posts, sources: feed.sources, fetchedAt: new Date().toISOString() };
-  });
   app.get(
     "/v1/wallets/hyperevm/:address",
     { preHandler: requirePermission("portfolio:read") },
@@ -885,7 +872,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     catalog,
     stockNews,
     new SecEdgarClient(config.SEC_EDGAR_USER_AGENT),
-    social,
     config.DATABASE_URL,
   );
   const marketStates = new MarketStateBuilder(intelligence, history);
