@@ -137,7 +137,11 @@ function SolanaSwap({ excludedMints }: { excludedMints: readonly string[] }) {
     return [
       ...(sol > 0n ? [{ mint: SOL, symbol: "SOL", decimals: 9, spendable: sol }] : []),
       ...wallet.holdings
-        .filter((holding) => !excluded.has(holding.mint) && BigInt(holding.rawBalance) > 0n)
+        .filter(
+          // Likely spam airdrops have no market and are not offered for swapping.
+          (holding) =>
+            !excluded.has(holding.mint) && !holding.suspicious && BigInt(holding.rawBalance) > 0n,
+        )
         .map((holding) => ({
           mint: holding.mint,
           symbol: holding.symbol ?? holding.name ?? `${holding.mint.slice(0, 4)}…`,

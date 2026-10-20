@@ -70,6 +70,7 @@ import {
   BridgeUnavailable,
   EvmSwapQuoteInput,
   RelayBridgeClient,
+  SOLANA_CHAIN_ID,
 } from "./bridge.js";
 import { ClawpumpClient, ClawpumpDirectory, ClawpumpError } from "./clawpump.js";
 import { CoinMarketCapClient } from "./coinmarketcap.js";
@@ -122,6 +123,7 @@ import { SolanaConvertService, USDC_MINT } from "./solana-convert.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { StockNewsClient } from "./stock-news.js";
 import { HeliusEnhancedTransaction, SiseraTelegramBuyBot } from "./telegram-buybot.js";
+import { TokenValuer } from "./token-valuation.js";
 import { type WalletChain, createWalletOwnershipChecker } from "./wallet-ownership.js";
 import { XStocksClient } from "./xstocks.js";
 
@@ -228,6 +230,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       : undefined,
   );
   const hyperEvmWallet = new HyperEvmWalletClient();
+  const tokenValuer = new TokenValuer(config.JUPITER_API_KEY);
   const clawpump = config.CLAWPUMP_API_KEY ? new ClawpumpClient(config.CLAWPUMP_API_KEY) : null;
   const jupiter = config.JUPITER_API_KEY ? new JupiterQuoteClient(config.JUPITER_API_KEY) : null;
   // Agent tokens are resolved through the catalog, which is constructed once live prices exist.
@@ -628,7 +631,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             reply,
             request.principal.subject,
             input.recipient,
-            input.destinationChainId === 999 ? "ethereum" : "solana",
+            // Hyperliquid and HyperEVM recipients are EVM addresses; only Solana differs.
+            input.destinationChainId === SOLANA_CHAIN_ID ? "solana" : "ethereum",
           ))
         )
           return reply;
@@ -679,7 +683,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             reply,
             request.principal.subject,
             input.recipient,
-            input.destinationChainId === 999 ? "ethereum" : "solana",
+            // Hyperliquid and HyperEVM recipients are EVM addresses; only Solana differs.
+            input.destinationChainId === SOLANA_CHAIN_ID ? "solana" : "ethereum",
           ))
         )
           return reply;
@@ -2145,7 +2150,25 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       const { address } = z
         .object({ address: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/) })
         .parse(request.params);
-      return { data: await helius.getWallet(address) };
+      const wallet = await helius.getWallet(address);
+      // Price every token and flag likely spam, so stablecoins count and fake airdrops do not.
+      const [holdings, solPriceUsd] = await Promise.all([
+        tokenValuer.value(wallet.holdings),
+        tokenValuer.solPrice().catch(() => null),
+      ]);
+      const solValueUsd =
+        solPriceUsd == null ? null : (Number(wallet.solLamports) / 1e9) * solPriceUsd;
+      return {
+        data: {
+          ...wallet,
+          holdings,
+          solPriceUsd,
+          solValueUsd,
+          totalValueUsd:
+            holdings.reduce((sum, holding) => sum + (holding.valueUsd ?? 0), 0) +
+            (solValueUsd ?? 0),
+        },
+      };
     },
   );
   app.get("/metrics", async (_request, reply) =>

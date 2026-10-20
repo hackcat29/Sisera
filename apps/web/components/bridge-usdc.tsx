@@ -27,14 +27,15 @@ export function BridgeUsdc() {
   const { evm: wallet, solanaAddress } = useSiseraWallets();
   const solana = solanaAddress ?? getPrivySolanaAddress(user);
   const [origin, setOrigin] = useState(8453);
-  const [destination, setDestination] = useState<999 | 792703809>(999);
+  // Hyperliquid (1337) delivers straight to the trading account; HyperEVM (999) is the EVM chain.
+  const [destination, setDestination] = useState<1337 | 999 | 792703809>(1337);
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quotedAt, setQuotedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
-  const recipient = destination === 999 ? wallet?.address : solana;
+  const recipient = destination === 792703809 ? solana : wallet?.address;
 
   useEffect(() => {
     if (!authenticated) {
@@ -67,9 +68,9 @@ export function BridgeUsdc() {
     if (!wallet) throw new Error("Connect an EVM source wallet first.");
     if (!recipient)
       throw new Error(
-        destination === 999
-          ? "An EVM destination wallet is required."
-          : "Sign in to create your Solana wallet first.",
+        destination === 792703809
+          ? "Sign in to create your Solana wallet first."
+          : "An EVM destination wallet is required.",
       );
     const response = await fetch("/api/bridge", {
       method: "POST",
@@ -170,13 +171,14 @@ export function BridgeUsdc() {
           <select
             value={destination}
             onChange={(event) => {
-              setDestination(Number(event.target.value) as 999 | 792703809);
+              setDestination(Number(event.target.value) as 1337 | 999 | 792703809);
               setQuote(null);
             }}
             className="mt-1 w-full rounded border border-line bg-ink-raised p-2 text-slate-100"
           >
+            <option value={1337}>Hyperliquid · trading account</option>
+            <option value={792703809}>Solana · stocks &amp; predictions</option>
             <option value={999}>HyperEVM</option>
-            <option value={792703809}>Solana</option>
           </select>
         </label>
         <label className="text-xs text-slate-400">
@@ -249,7 +251,8 @@ export function BridgeUsdc() {
       )}
       {message && <output className="mt-3 block text-xs text-amber-200">{message}</output>}
       <p className="mt-3 text-[11px] text-slate-500">
-        HyperEVM USDC must be moved to HyperCore before it can fund a Hyperliquid perp account.
+        Hyperliquid deliveries land in your perps balance, ready to trade. Hyperliquid needs at
+        least 5 USDC to arrive after fees.
       </p>
     </section>
   );

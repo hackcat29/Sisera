@@ -8,6 +8,9 @@ import { useSiseraWallets } from "../lib/use-sisera-wallets";
 
 const SOLANA = 792703809;
 const HYPEREVM = 999;
+/** Relay's chain ID for the Hyperliquid trading account. */
+const HYPERLIQUID = 1337;
+type Destination = typeof SOLANA | typeof HYPEREVM | typeof HYPERLIQUID;
 const CHAINS = [
   { id: 1, name: "Ethereum" },
   { id: 8453, name: "Base" },
@@ -83,7 +86,7 @@ export function EvmSwapToUsdc() {
   const [unavailable, setUnavailable] = useState<number[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState("");
-  const [destination, setDestination] = useState<typeof SOLANA | typeof HYPEREVM>(SOLANA);
+  const [destination, setDestination] = useState<Destination>(SOLANA);
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quotedAt, setQuotedAt] = useState(0);
@@ -92,7 +95,7 @@ export function EvmSwapToUsdc() {
   const [done, setDone] = useState<{ requestId: string; delivered: boolean } | null>(null);
   const [customChain, setCustomChain] = useState(8453);
   const [customToken, setCustomToken] = useState("");
-  const recipient = destination === HYPEREVM ? owner : solana;
+  const recipient = destination === SOLANA ? solana : owner;
 
   const loadAssets = useCallback(async () => {
     if (!owner) return;
@@ -225,7 +228,8 @@ export function EvmSwapToUsdc() {
     setDone({ requestId, delivered: false });
     setMessage("Swap submitted. Relay is delivering your USDC…");
     // Delivery is tracked in the background so the panel is free for the next swap.
-    const chainName = destination === SOLANA ? "Solana" : "HyperEVM";
+    const chainName =
+      destination === SOLANA ? "Solana" : destination === HYPERLIQUID ? "Hyperliquid" : "HyperEVM";
     void waitForRelay(requestId, (status) =>
       setMessage(`Delivery status: ${status.status.replaceAll("_", " ")}`),
     ).then((final) => {
@@ -319,13 +323,14 @@ export function EvmSwapToUsdc() {
             <select
               value={destination}
               onChange={(event) => {
-                setDestination(Number(event.target.value) as typeof SOLANA | typeof HYPEREVM);
+                setDestination(Number(event.target.value) as Destination);
                 reset();
               }}
               className="mt-1 w-full rounded border border-line bg-ink-raised p-2 text-slate-100"
             >
               <option value={SOLANA}>Solana · stocks & predictions</option>
-              <option value={HYPEREVM}>HyperEVM · Hyperliquid</option>
+              <option value={HYPERLIQUID}>Hyperliquid · perps account</option>
+              <option value={HYPEREVM}>HyperEVM</option>
             </select>
           </label>
         </div>
@@ -355,7 +360,12 @@ export function EvmSwapToUsdc() {
               {fromRaw(quote.originAmount, quote.originDecimals)} {asset.symbol}
             </strong>{" "}
             on {quote.originChain} for about <strong>${money(quote.outputAmountUsdc)} USDC</strong>{" "}
-            on {quote.destinationChainId === SOLANA ? "Solana" : "HyperEVM"}
+            on{" "}
+            {quote.destinationChainId === SOLANA
+              ? "Solana"
+              : quote.destinationChainId === HYPERLIQUID
+                ? "Hyperliquid"
+                : "HyperEVM"}
           </p>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 font-mono text-[11px]">
             {quote.minimumOutputUsdc && (

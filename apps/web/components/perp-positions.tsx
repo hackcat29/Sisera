@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
+  type SpotMarket,
   announcePerpTrade,
   assetFor,
   cancelOrder,
@@ -32,11 +33,17 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   // Spot orders are keyed like "@142"; show them by name.
   const [spotNames, setSpotNames] = useState<Map<string, string>>(new Map());
+  const [spotByToken, setSpotByToken] = useState<Map<string, SpotMarket>>(new Map());
   useEffect(() => {
     void spotMarkets()
-      .then((markets) =>
-        setSpotNames(new Map(markets.map((market) => [market.coin, `${market.symbol}/USDC`]))),
-      )
+      .then((markets) => {
+        setSpotNames(new Map(markets.map((market) => [market.coin, `${market.symbol}/USDC`])));
+        // The most traded pair for each token prices its balance.
+        const byToken = new Map<string, SpotMarket>();
+        for (const market of markets)
+          if (!byToken.has(market.token)) byToken.set(market.token, market);
+        setSpotByToken(byToken);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -209,6 +216,46 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
           </div>
         )}
       </div>
+
+      {(account.spotUsdc > 0 || account.spotBalances.length > 0) && (
+        <div>
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Spot balances
+          </h4>
+          <div className="divide-y divide-line font-mono text-slate-300">
+            {account.spotUsdc > 0 && (
+              <div className="flex justify-between py-2">
+                <span className="text-slate-100">USDC</span>
+                <span>{usd(account.spotUsdc)}</span>
+              </div>
+            )}
+            {account.spotBalances.map((balance) => {
+              const market = spotByToken.get(balance.token);
+              return (
+                <div key={balance.token} className="flex justify-between gap-3 py-2">
+                  <span>
+                    {market ? (
+                      <Link
+                        prefetch={false}
+                        href={`/spot/${encodeURIComponent(market.symbol)}`}
+                        className="text-slate-100 hover:text-bronze-200"
+                      >
+                        {market.symbol}
+                      </Link>
+                    ) : (
+                      <span className="text-slate-100">{balance.token}</span>
+                    )}{" "}
+                    <span className="text-slate-500">
+                      {balance.total.toLocaleString("en-US", { maximumFractionDigits: 6 })}
+                    </span>
+                  </span>
+                  <span>{market ? usd(balance.total * market.markPx) : "—"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div>
         <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">

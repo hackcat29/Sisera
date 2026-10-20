@@ -33,6 +33,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { FundAccountButton } from "./fund-account";
 import { MarketAutoRefresh } from "./market-auto-refresh";
 import { MarketSession } from "./market-session";
 import { OperatorProfile } from "./operator-profile";
@@ -390,6 +391,7 @@ export function OperatorShell({
             </button>
             {signedIn ? (
               <>
+                <FundAccountButton compact className="hidden sm:inline-flex" />
                 <PortfolioConnect compact />
                 <OperatorProfile operator={operator} localMode={localMode} />
               </>

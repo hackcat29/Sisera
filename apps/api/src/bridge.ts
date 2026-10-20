@@ -4,7 +4,7 @@ import { EVM_SWAP_CHAINS, NATIVE_TOKEN } from "./evm-assets.js";
 export const SOLANA_CHAIN_ID = 792703809;
 export const BRIDGE_CHAINS = {
   1: { name: "Ethereum", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
-  8453: { name: "Base", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54dA02913" },
+  8453: { name: "Base", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
   42161: { name: "Arbitrum", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
 } as const;
 /** Relay's chain ID for HyperCore, where USDC lands in the user's Hyperliquid perps balance. */

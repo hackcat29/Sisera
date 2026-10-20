@@ -24,13 +24,14 @@ export default function SignInPage() {
         <div className="relative z-10 max-w-2xl">
           <p className="eyebrow">Solana Financial Terminal</p>
           <h1 className="display mt-6 text-6xl leading-[1.02] text-bone">
-            Tokenized equities, private markets, and
+            Stocks, perps, predictions and
             <br />
             <em className="text-bronze-300">rule-bound agents.</em>
           </h1>
           <p className="mt-6 max-w-lg text-sm leading-7 text-slate-300">
-            One terminal to compare stock tokens with their shares on Pyth, price pre-IPO tokens
-            against issuer marks, and draft research agents with explicit risk limits.
+            One terminal for tokenized stocks and private markets, Hyperliquid perps and spot, and
+            prediction markets, all from your own wallet, with research agents that respect your
+            risk limits.
           </p>
         </div>
         <p className="relative z-10 font-mono text-[10px] uppercase tracking-[.16em] text-slate-500">
