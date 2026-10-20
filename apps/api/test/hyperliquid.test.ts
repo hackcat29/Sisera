@@ -15,6 +15,7 @@ const db = vi.hoisted(() => ({
 vi.mock("@sisera/db", () => db);
 
 const USER = "0x03508bb71268bba25ecacc8f620e01866650532c";
+const BUILDER = "0x1111111111111111111111111111111111111111";
 const agent = privateKeyToAccount(generatePrivateKey());
 const stranger = privateKeyToAccount(generatePrivateKey());
 
@@ -25,6 +26,10 @@ type Venue = {
   agents?: string[];
   exchange?: (body: { action: { type: string } }) => unknown;
   exchangeError?: Error;
+  spotBalances?: Array<{ coin: string; total: string; hold?: string }>;
+  approvedBuilderFee?: number;
+  orderStatus?: unknown;
+  builder?: boolean;
 };
 
 /** A stand-in for Hyperliquid's info and exchange endpoints. */
@@ -74,6 +79,28 @@ function venue(state: Venue = {}) {
             },
           })),
         });
+      case "spotMetaAndAssetCtxs":
+        return Response.json([
+          {
+            tokens: [
+              { name: "USDC", szDecimals: 8, index: 0, fullName: null },
+              { name: "UBTC", szDecimals: 5, index: 197, fullName: "Unit Bitcoin" },
+            ],
+            universe: [{ name: "@142", index: 142, tokens: [197, 0] }],
+          },
+          [{ coin: "@142", markPx: "81000", dayNtlVlm: "1000000" }],
+        ]);
+      case "spotClearinghouseState":
+        return Response.json({
+          balances: (state.spotBalances ?? [{ coin: "USDC", total: "500" }]).map((balance) => ({
+            hold: "0",
+            ...balance,
+          })),
+        });
+      case "maxBuilderFee":
+        return Response.json(state.approvedBuilderFee ?? 1000);
+      case "orderStatus":
+        return Response.json(state.orderStatus ?? { status: "unknownOid" });
       case "extraAgents":
         return Response.json(
           (state.agents ?? [agent.address]).map((address) => ({
@@ -94,6 +121,7 @@ function venue(state: Venue = {}) {
     databaseUrl: "postgres://test",
     maxLeverage: 20,
     maxNotionalUsd: 25_000,
+    builder: state.builder ? { address: BUILDER, perpBps: 10, spotBps: 100 } : undefined,
     fetcher: fetcher as unknown as typeof fetch,
   });
   return { service, fetcher, exchangeCalls };
@@ -405,5 +433,154 @@ describe("Solana USDC deposits into Hyperliquid", () => {
         new RelayBridgeClient().solanaDepositQuote({ user, recipient: USER, amountUsdc: "25" }),
       ).rejects.toThrow(/cannot verify/);
     }
+  });
+});
+
+describe("Hyperliquid limit orders, spot and builder fees", () => {
+  it("places a limit order at the trader's price and records it as open while it rests", async () => {
+    const { service } = venue({
+      exchange: (body) =>
+        body.action.type === "order"
+          ? {
+              status: "ok",
+              response: { type: "order", data: { statuses: [{ resting: { oid: 77 } }] } },
+            }
+          : undefined,
+    });
+    const order = await service.prepare({
+      ...open,
+      orderType: "limit",
+      limitPx: 76000,
+      postOnly: true,
+    });
+    const entry = (order.actions.at(-1)?.action as { orders: Array<Record<string, unknown>> })
+      .orders[0];
+    // Post-only limits use Hyperliquid's add-liquidity-only time in force.
+    expect(entry).toMatchObject({ p: "76000", t: { limit: { tif: "Alo" } } });
+    // Size comes from margin times leverage at the limit price, not the current mark.
+    expect(order.size).toBe(
+      new Decimal(500).div(76000).toDecimalPlaces(5, Decimal.ROUND_DOWN).toFixed(),
+    );
+    db.claimHyperliquidOrder.mockResolvedValue({
+      id: order.orderId,
+      accountAddress: USER,
+      preparedActions: order.actions,
+    });
+    const result = await service.execute({
+      subject: "privy:user",
+      orderId: order.orderId,
+      signatures: await sign(order.actions),
+    });
+    expect(result).toMatchObject({ status: "open", oid: 77 });
+    expect(db.updateMarketLiveOrder).toHaveBeenCalledWith(
+      "postgres://test",
+      order.orderId,
+      "open",
+      "77",
+    );
+  });
+
+  it("sizes spot buys in USDC against the spot balance, under the spot asset ID", async () => {
+    const { service } = venue();
+    const order = await service.prepare({
+      kind: "spot",
+      subject: "privy:user",
+      tenantId: "personal:user",
+      user: USER,
+      coin: "BTC",
+      side: "buy",
+      amountUsd: 100,
+    });
+    const entry = (order.actions[0]?.action as { orders: Array<Record<string, unknown>> })
+      .orders[0];
+    expect(order).toMatchObject({ market: "spot", symbol: "BTC", coin: "@142" });
+    expect(entry).toMatchObject({ a: 10_142, b: true, r: false });
+    expect(order.actions.map((item) => item.action.type)).toEqual(["order"]);
+    expect(db.prepareHyperliquidOrder).toHaveBeenCalledWith(
+      "postgres://test",
+      expect.objectContaining({ marketType: "spot", symbol: "BTC/USDC" }),
+    );
+    await expect(
+      venue({ spotBalances: [{ coin: "USDC", total: "20" }] }).service.prepare({
+        kind: "spot",
+        subject: "privy:user",
+        tenantId: "personal:user",
+        user: USER,
+        coin: "BTC",
+        side: "buy",
+        amountUsd: 100,
+      }),
+    ).rejects.toThrow(/\$20.00 USDC in your Hyperliquid spot balance/);
+  });
+
+  it("adds Sisera's builder fee to orders: 0.1% on perps and 1% on spot", async () => {
+    const perp = await venue({ builder: true }).service.prepare(open);
+    expect(perp.actions.at(-1)?.action).toMatchObject({ builder: { b: BUILDER, f: 100 } });
+    expect(perp.builderFeeUsd).toBe("0.50");
+    const spot = await venue({ builder: true }).service.prepare({
+      kind: "spot",
+      subject: "privy:user",
+      tenantId: "personal:user",
+      user: USER,
+      coin: "BTC",
+      side: "buy",
+      amountUsd: 100,
+    });
+    expect(spot.actions[0]?.action).toMatchObject({ builder: { b: BUILDER, f: 1000 } });
+  });
+
+  it("asks for the builder fee approval instead of sending an order Hyperliquid would reject", async () => {
+    const error = await venue({ builder: true, approvedBuilderFee: 0 })
+      .service.prepare(open)
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      statusCode: 428,
+      code: "builder_fee_approval_required",
+      details: { builder: BUILDER, maxFeeRate: "1%" },
+    });
+    expect(db.prepareHyperliquidOrder).not.toHaveBeenCalled();
+  });
+
+  it("settles a resting order that filled or was cancelled after it was placed", async () => {
+    const resting = {
+      id: crypto.randomUUID(),
+      clientOrderId: "0xabc",
+      accountAddress: USER,
+      symbol: "BTCUSDC",
+      quantity: "0.0062",
+      status: "open",
+      updatedAt: new Date(),
+    };
+    db.listUnreconciledHyperliquidOrders.mockResolvedValue([resting]);
+    await venue({
+      orderStatus: {
+        status: "order",
+        order: { status: "filled", order: { oid: 42, origSz: "0.0062", sz: "0" } },
+      },
+    }).service.reconcile("privy:user");
+    expect(db.updateMarketLiveOrder).toHaveBeenCalledWith(
+      "postgres://test",
+      resting.id,
+      "filled",
+      "42",
+      {
+        priceUsd: "80655",
+        feeUsd: "0.22",
+        quantity: "0.0062",
+      },
+    );
+    db.updateMarketLiveOrder.mockReset();
+    await venue({
+      orderStatus: {
+        status: "order",
+        order: { status: "canceled", order: { oid: 43, origSz: "0.0062", sz: "0.0062" } },
+      },
+    }).service.reconcile("privy:user");
+    expect(db.updateMarketLiveOrder).toHaveBeenCalledWith(
+      "postgres://test",
+      resting.id,
+      "cancelled",
+      "43",
+    );
   });
 });

@@ -180,17 +180,38 @@ const percent = (impact: z.infer<typeof Impact> | undefined) => {
   return impact?.percent != null && Number.isFinite(value) ? value : null;
 };
 
-export class RelayBridgeClient {
-  constructor(private readonly apiKey?: string) {}
+export type RelayFees = {
+  /** EVM address whose Relay balance accrues the fees, claimable in USDC. */
+  recipient: string;
+  /** Fee on swaps of other tokens into USDC, in basis points of the input. */
+  swapBps: number;
+  /** Fee on moving USDC between chains or into Hyperliquid. */
+  bridgeBps: number;
+};
 
-  private async request(body: Record<string, unknown>): Promise<Quote> {
+export class RelayBridgeClient {
+  constructor(
+    private readonly apiKey?: string,
+    private readonly fees?: RelayFees,
+  ) {}
+
+  private async request(body: Record<string, unknown>, feeBps = 0): Promise<Quote> {
+    const appFees =
+      this.fees && feeBps > 0
+        ? [{ recipient: this.fees.recipient, fee: String(feeBps) }]
+        : undefined;
     const response = await fetch("https://api.relay.link/quote/v2", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         ...(this.apiKey ? { "x-api-key": this.apiKey } : {}),
       },
-      body: JSON.stringify({ ...body, tradeType: "EXACT_INPUT", usePermit: false }),
+      body: JSON.stringify({
+        ...body,
+        tradeType: "EXACT_INPUT",
+        usePermit: false,
+        ...(appFees ? { appFees } : {}),
+      }),
       signal: AbortSignal.timeout(12000),
     });
     const payload: unknown = await response.json().catch(() => null);
@@ -258,15 +279,18 @@ export class RelayBridgeClient {
     const destination = DESTINATION_USDC[input.destinationChainId as keyof typeof DESTINATION_USDC];
     const [whole, fraction = ""] = input.amountUsdc.split(".");
     const amount = (BigInt(whole ?? "0") * 1_000_000n + BigInt(fraction.padEnd(6, "0"))).toString();
-    const quote = await this.request({
-      user: input.user,
-      recipient: input.recipient,
-      originChainId: input.originChainId,
-      destinationChainId: input.destinationChainId,
-      originCurrency: origin.usdc,
-      destinationCurrency: destination,
-      amount,
-    });
+    const quote = await this.request(
+      {
+        user: input.user,
+        recipient: input.recipient,
+        originChainId: input.originChainId,
+        destinationChainId: input.destinationChainId,
+        originCurrency: origin.usdc,
+        destinationCurrency: destination,
+        amount,
+      },
+      this.fees?.bridgeBps,
+    );
     const output = this.checkOutput(quote, input.destinationChainId);
     if (
       input.destinationChainId === HYPERLIQUID_CHAIN_ID &&
@@ -295,16 +319,21 @@ export class RelayBridgeClient {
   async swapQuote(rawInput: unknown) {
     const input = EvmSwapQuoteInput.parse(rawInput);
     const destination = DESTINATION_USDC[input.destinationChainId as keyof typeof DESTINATION_USDC];
-    const quote = await this.request({
-      user: input.user,
-      recipient: input.recipient,
-      refundTo: input.user,
-      originChainId: input.originChainId,
-      destinationChainId: input.destinationChainId,
-      originCurrency: input.originCurrency,
-      destinationCurrency: destination,
-      amount: input.amount,
-    });
+    const quote = await this.request(
+      {
+        user: input.user,
+        recipient: input.recipient,
+        refundTo: input.user,
+        originChainId: input.originChainId,
+        destinationChainId: input.destinationChainId,
+        originCurrency: input.originCurrency,
+        destinationCurrency: destination,
+        amount: input.amount,
+      },
+      input.originCurrency === EVM_SWAP_CHAINS[input.originChainId]?.usdc
+        ? this.fees?.bridgeBps
+        : this.fees?.swapBps,
+    );
     const output = this.checkOutput(quote, input.destinationChainId);
     const currencyIn = quote.details.currencyIn;
     if (
@@ -368,16 +397,19 @@ export class RelayBridgeClient {
       throw new BridgeUnavailable("Enter a valid USDC amount.", 422);
     const [whole, fraction = ""] = input.amountUsdc.split(".");
     const amount = BigInt(whole ?? "0") * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
-    const quote = await this.request({
-      user,
-      recipient,
-      refundTo: user,
-      originChainId: SOLANA_CHAIN_ID,
-      destinationChainId: HYPERLIQUID_CHAIN_ID,
-      originCurrency: SOLANA_USDC,
-      destinationCurrency: DESTINATION_USDC[HYPERLIQUID_CHAIN_ID],
-      amount: amount.toString(),
-    });
+    const quote = await this.request(
+      {
+        user,
+        recipient,
+        refundTo: user,
+        originChainId: SOLANA_CHAIN_ID,
+        destinationChainId: HYPERLIQUID_CHAIN_ID,
+        originCurrency: SOLANA_USDC,
+        destinationCurrency: DESTINATION_USDC[HYPERLIQUID_CHAIN_ID],
+        amount: amount.toString(),
+      },
+      this.fees?.bridgeBps,
+    );
     const output = this.checkOutput(quote, HYPERLIQUID_CHAIN_ID);
     const requestId = quote.steps.find((step) =>
       /^0x[a-fA-F0-9]{64}$/.test(step.requestId ?? ""),

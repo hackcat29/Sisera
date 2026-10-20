@@ -187,6 +187,12 @@ Open `http://localhost:3000`; the API runs on `http://localhost:4000`. `pnpm dev
 | `JUPITER_API_KEY` | Live prices, swap orders, Swap to USDC and prediction markets |
 | `SISERA_SWAP_MAX_USD` | Largest single Swap to USDC, in USD (default `10000`) |
 | `SISERA_EVM_RPC_URLS` | Optional private RPCs for EVM swap balances, as `chainId=url` pairs (public RPCs by default) |
+| `SISERA_LIVE_HYPERLIQUID_ENABLED` | Live Hyperliquid perps and spot trading (default `true`) |
+| `SISERA_PERP_MAX_LEVERAGE` / `SISERA_PERP_MAX_NOTIONAL_USD` | Perp order limits (defaults `20`x and `25000`) |
+| `SISERA_BUILDER_ADDRESS` | Wallet receiving Hyperliquid builder fees (`SISERA_BUILDER_FEE_PERP_BPS`, default 10; `SISERA_BUILDER_FEE_SPOT_BPS`, default 100) |
+| `SISERA_JUPITER_REFERRAL_ACCOUNT` | Jupiter referral account for fees on Solana trades (`SISERA_JUPITER_TRADE_FEE_BPS`, default 100) and Swap to USDC (`SISERA_JUPITER_CONVERT_FEE_BPS`, default 50) |
+| `SISERA_RELAY_FEE_RECIPIENT` | Relay app-fee recipient for EVM swaps (`SISERA_RELAY_SWAP_FEE_BPS`, default 50) and USDC bridges (`SISERA_RELAY_BRIDGE_FEE_BPS`, default 0) |
+| `SISERA_SOLANA_FEE_ACCOUNT` | Sisera's USDC token account for prediction fees (`SISERA_PREDICTION_FEE_BPS`, default 100) |
 | `PYTH_API_KEY`, `PYTH_HERMES_URL` | Pyth Core equity reference feeds |
 | `CLAWPUMP_API_KEY` | Clawpump partner API (pairs, agents, launches) |
 | `OPENROUTER_API_KEY`, `SISERA_INTELLIGENCE_MODEL` | Model narration for Sisera AI and research |

@@ -46,6 +46,7 @@ function service(options: {
   order?: () => Promise<unknown>;
   tracked?: string | null;
   maxNotionalUsd?: number;
+  referral?: { account: string; feeBps: number };
 }) {
   const jupiter = {
     order: vi.fn(options.order ?? (async () => order())),
@@ -58,6 +59,7 @@ function service(options: {
       jupiter,
       trackedAsset: async () => options.tracked ?? null,
       maxNotionalUsd: options.maxNotionalUsd ?? 10_000,
+      referral: options.referral,
     }),
   };
 }
@@ -77,7 +79,14 @@ describe("Solana swap into USDC", () => {
   it("routes any held token into USDC and books it outside trading positions", async () => {
     const { convert, jupiter } = service({});
     const prepared = await convert.prepare(request);
-    expect(jupiter.order).toHaveBeenCalledWith(BONK, USDC_MINT, request.amount, WALLET, undefined);
+    expect(jupiter.order).toHaveBeenCalledWith(
+      BONK,
+      USDC_MINT,
+      request.amount,
+      WALLET,
+      undefined,
+      undefined,
+    );
     expect(prepared).toMatchObject({
       outAmount: "25000000",
       minOutAmount: "24875000",
@@ -96,6 +105,34 @@ describe("Solana swap into USDC", () => {
       mode: "live",
     });
     expect(saved.riskDecision.outcome).toBe("approved");
+  });
+
+  it("charges Sisera's fee through Jupiter, except for wallets that need gasless swaps", async () => {
+    const referral = { account: "REFxSiseraReferra1Account11111111111111111", feeBps: 50 };
+    const funded = service({
+      helius: helius({ raw: "500000000000", lamports: "50000000" }),
+      referral,
+    });
+    await funded.convert.prepare(request);
+    expect(funded.jupiter.order).toHaveBeenCalledWith(
+      BONK,
+      USDC_MINT,
+      request.amount,
+      WALLET,
+      undefined,
+      referral,
+    );
+    // Under 0.01 SOL, Jupiter only sponsors gas when no referral fee is set.
+    const gasless = service({ helius: helius({ raw: "500000000000", lamports: "0" }), referral });
+    await gasless.convert.prepare(request);
+    expect(gasless.jupiter.order).toHaveBeenCalledWith(
+      BONK,
+      USDC_MINT,
+      request.amount,
+      WALLET,
+      undefined,
+      undefined,
+    );
   });
 
   it("does not require SOL for fees, so Jupiter can sponsor gas for token-only wallets", async () => {

@@ -58,11 +58,12 @@ async function ownerWallet(wallet: ConnectedWallet) {
  * Creates a trading key on this device and asks the user's wallet to approve it once. After this,
  * orders are signed by the trading key without further wallet prompts.
  */
-export async function enableTrading(wallet: ConnectedWallet) {
+export async function enableTrading(wallet: ConnectedWallet, fee?: BuilderFee | null) {
   const privateKey = generatePrivateKey();
   const agent = privateKeyToAccount(privateKey);
   const exchange = new ExchangeClient({ wallet: await ownerWallet(wallet), transport });
   await exchange.approveAgent({ agentAddress: agent.address, agentName: AGENT_NAME });
+  if (fee) await approveBuilderFee(wallet, fee);
   try {
     window.localStorage.setItem(
       storageKey(wallet.address),
@@ -72,6 +73,25 @@ export async function enableTrading(wallet: ConnectedWallet) {
     throw new Error("This browser blocks storage, so trading cannot stay enabled here.");
   }
   return agent.address;
+}
+
+export type BuilderFee = { builder: string; maxFeeRate: string };
+
+/**
+ * Approves Sisera's builder fee, which Hyperliquid adds to each order. Only the account owner can
+ * approve it, and once is enough; the approval caps what Sisera can ever charge.
+ */
+export async function approveBuilderFee(wallet: ConnectedWallet, fee: BuilderFee) {
+  const approved = await hyperliquidInfo
+    .maxBuilderFee({ user: wallet.address as Address, builder: fee.builder as Address })
+    .catch(() => 0);
+  // maxBuilderFee is in tenths of a basis point; "1%" is 1000.
+  if (approved >= Number.parseFloat(fee.maxFeeRate) * 1000) return;
+  const exchange = new ExchangeClient({ wallet: await ownerWallet(wallet), transport });
+  await exchange.approveBuilderFee({
+    builder: fee.builder as Address,
+    maxFeeRate: fee.maxFeeRate as `${string}%`,
+  });
 }
 
 /** Whether this device's trading key is still approved on the account. */
@@ -151,6 +171,8 @@ export type HyperliquidAccount = {
   openOrders: OpenOrder[];
   /** USDC sitting in the spot balance, which perps cannot use as margin until it is moved. */
   spotUsdc: number;
+  /** Spot token balances other than USDC, by token name (e.g. "UBTC"). */
+  spotBalances: Array<{ token: string; total: number; available: number }>;
   assetIndex: Map<string, number>;
   updatedAt: number;
 };
@@ -206,8 +228,68 @@ export function usePerpMarketMeta(coin: string) {
 
 /** Moves USDC from the Hyperliquid spot balance to perps, where it can be used as margin. */
 export async function moveSpotToPerps(wallet: ConnectedWallet, amountUsd: string) {
+  await moveUsdc(wallet, amountUsd, true);
+}
+
+/** Moves USDC between the perps balance (margin) and the spot balance (for buying tokens). */
+export async function moveUsdc(wallet: ConnectedWallet, amountUsd: string, toPerp: boolean) {
   const exchange = new ExchangeClient({ wallet: await ownerWallet(wallet), transport });
-  await exchange.usdClassTransfer({ amount: amountUsd, toPerp: true });
+  await exchange.usdClassTransfer({ amount: amountUsd, toPerp });
+}
+
+export type SpotMarket = {
+  /** Info API coin: "@142", or "PURR/USDC" for the original pair. */
+  coin: string;
+  /** What traders call it: UBTC (Unit Bitcoin) trades as BTC. */
+  symbol: string;
+  name: string;
+  /** The token as named in balances. */
+  token: string;
+  /** Order asset ID: 10000 plus the pair index. */
+  asset: number;
+  szDecimals: number;
+  markPx: number;
+  prevDayPx: number;
+  volume24hUsd: number;
+};
+
+let spotPromise: Promise<SpotMarket[]> | null = null;
+/** Every Hyperliquid spot pair quoted in USDC, most traded first. */
+export function spotMarkets() {
+  spotPromise ??= hyperliquidInfo
+    .spotMetaAndAssetCtxs()
+    .then(([meta, contexts]) => {
+      const tokens = new Map(meta.tokens.map((token) => [token.index, token]));
+      const byCoin = new Map(contexts.map((context) => [context.coin, context]));
+      return meta.universe
+        .flatMap((pair) => {
+          const base = tokens.get(pair.tokens[0]);
+          const quote = tokens.get(pair.tokens[1]);
+          const context = byCoin.get(pair.name);
+          if (!base || quote?.name !== "USDC" || !context || !(Number(context.markPx) > 0))
+            return [];
+          const unit = /^Unit /i.test(base.fullName ?? "") && /^U[A-Z0-9]{2,}$/.test(base.name);
+          return [
+            {
+              coin: pair.name,
+              symbol: unit ? base.name.slice(1) : base.name,
+              name: base.fullName?.replace(/^Unit /i, "") || base.name,
+              token: base.name,
+              asset: 10_000 + pair.index,
+              szDecimals: base.szDecimals,
+              markPx: Number(context.markPx),
+              prevDayPx: Number(context.prevDayPx),
+              volume24hUsd: Number(context.dayNtlVlm),
+            },
+          ];
+        })
+        .sort((a, b) => b.volume24hUsd - a.volume24hUsd);
+    })
+    .catch((error) => {
+      spotPromise = null;
+      throw error;
+    });
+  return spotPromise;
 }
 
 async function loadAccount(user: Address): Promise<HyperliquidAccount> {
@@ -245,6 +327,13 @@ async function loadAccount(user: Address): Promise<HyperliquidAccount> {
       timestamp: order.timestamp,
     })),
     spotUsdc: Number(spot?.balances.find((balance) => balance.coin === "USDC")?.total ?? 0),
+    spotBalances: (spot?.balances ?? [])
+      .filter((balance) => balance.coin !== "USDC" && Number(balance.total) > 0)
+      .map((balance) => ({
+        token: balance.coin,
+        total: Number(balance.total),
+        available: Number(balance.total) - Number(balance.hold),
+      })),
     assetIndex: new Map([...index].map(([coin, meta]) => [coin, meta.index])),
     updatedAt: Date.now(),
   };
@@ -292,4 +381,83 @@ export function useHyperliquidAccount(address: string | null | undefined) {
 /** Tells every perps panel on the page to refresh after an order, cancel or deposit. */
 export function announcePerpTrade() {
   window.dispatchEvent(new Event("sisera:perp-trade"));
+}
+
+/** An API refusal, with the machine-readable reason when the server gives one. */
+export class PerpsRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+    readonly details: Record<string, unknown>,
+  ) {
+    super(message);
+  }
+}
+
+async function postPerps(body: Record<string, unknown>) {
+  const response = await fetch("/api/perps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok)
+    throw new PerpsRequestError(
+      payload.message ?? "The order could not be placed.",
+      typeof payload.error === "string" ? payload.error : null,
+      payload,
+    );
+  return payload.data;
+}
+
+export type OrderResult =
+  | { status: "filled"; filledSize: string; averagePx: string; feeUsd: string }
+  | { status: "open"; oid: number }
+  | { status: "unknown" };
+
+/**
+ * Prepares an order on the server, signs it with this device's trading key and submits it. If
+ * Sisera's builder fee has not been approved yet, asks the wallet to approve it once and retries.
+ */
+export async function placeOrder(
+  account: string,
+  wallet: ConnectedWallet | null | undefined,
+  order: Record<string, unknown>,
+): Promise<{
+  prepared: Record<string, unknown> & { orderId: string; actions: PreparedAction[] };
+  result: OrderResult;
+}> {
+  let prepared: Record<string, unknown> & { orderId: string; actions: PreparedAction[] };
+  try {
+    prepared = await postPerps({ action: "prepare", user: account, ...order });
+  } catch (error) {
+    if (
+      !(error instanceof PerpsRequestError) ||
+      error.code !== "builder_fee_approval_required" ||
+      !wallet
+    )
+      throw error;
+    await approveBuilderFee(wallet, {
+      builder: String(error.details.builder),
+      maxFeeRate: String(error.details.maxFeeRate),
+    });
+    prepared = await postPerps({ action: "prepare", user: account, ...order });
+  }
+  const signatures = await signPrepared(account, prepared.actions);
+  const result = (await postPerps({
+    action: "execute",
+    orderId: prepared.orderId,
+    signatures,
+  })) as OrderResult;
+  announcePerpTrade();
+  return { prepared, result };
+}
+
+/** The order asset ID for a perp coin ("BTC") or spot pair ("@142"). */
+export async function assetFor(coin: string, account: HyperliquidAccount) {
+  const perp = account.assetIndex.get(coin);
+  if (perp != null) return perp;
+  const spot = (await spotMarkets()).find((market) => market.coin === coin);
+  if (spot) return spot.asset;
+  throw new Error("This market is unavailable.");
 }

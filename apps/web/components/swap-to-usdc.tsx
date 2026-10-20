@@ -369,7 +369,7 @@ function SolanaSwap({ excludedMints }: { excludedMints: readonly string[] }) {
             )}
             {prepared.feeBps != null && (
               <>
-                <dt className="text-slate-500">Routing fee</dt>
+                <dt className="text-slate-500">Fees (routing and Sisera)</dt>
                 <dd>{(prepared.feeBps / 100).toFixed(2)}%</dd>
               </>
             )}

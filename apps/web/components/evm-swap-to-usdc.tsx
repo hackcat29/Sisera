@@ -376,6 +376,12 @@ export function EvmSwapToUsdc() {
                 <dd>${money(quote.fees.gas.amountUsd)}</dd>
               </>
             )}
+            {quote.fees.app?.amountUsd && Number(quote.fees.app.amountUsd) > 0 && (
+              <>
+                <dt className="text-slate-500">Sisera fee</dt>
+                <dd>${money(quote.fees.app.amountUsd)}</dd>
+              </>
+            )}
             {quote.fees.relayer?.amountUsd && Number(quote.fees.relayer.amountUsd) > 0 && (
               <>
                 <dt className="text-slate-500">Relay fee</dt>

@@ -8,7 +8,7 @@ import {
   announcePerpTrade,
   enableTrading,
   moveSpotToPerps,
-  signPrepared,
+  placeOrder,
   tradingEnabled,
   useHyperliquidAccount,
   usePerpMarketMeta,
@@ -16,7 +16,12 @@ import {
 import { usePerpMid } from "../lib/market-streams";
 import { useSiseraWallets } from "../lib/use-sisera-wallets";
 import { PerpDeposit } from "./perp-deposit";
-import { useLiveCapability, usePerpLimits } from "./use-live-capability";
+import {
+  builderApproval,
+  useHyperliquidFee,
+  useLiveCapabilityStatus,
+  usePerpLimits,
+} from "./use-live-capability";
 
 const PRESETS = [0.25, 0.5, 0.75, 1] as const;
 const TAKER_FEE = 0.00045;
@@ -28,17 +33,6 @@ const price = (value: number) =>
     maximumFractionDigits: value >= 1000 ? 1 : value >= 1 ? 3 : 6,
   });
 
-async function post(body: Record<string, unknown>) {
-  const response = await fetch("/api/perps", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.message ?? "The order could not be placed.");
-  return payload.data;
-}
-
 /** Estimated liquidation price for a new isolated position; mirrors the server's estimate. */
 function liquidationPrice(entry: number, leverage: number, maxLeverage: number, isLong: boolean) {
   const distance = 1 / leverage - 1 / (2 * maxLeverage);
@@ -48,8 +42,8 @@ function liquidationPrice(entry: number, leverage: number, maxLeverage: number, 
 
 /**
  * Order entry for Hyperliquid perpetuals, sized the way traders think: margin in USDC times
- * leverage. Live orders are priced and risk-checked by Sisera, signed by this device's trading
- * key, and placed on the user's own Hyperliquid account.
+ * leverage, at market or at a limit price. Live orders are priced and risk-checked by Sisera,
+ * signed by this device's trading key, and placed on the user's own Hyperliquid account.
  */
 export function PerpTradeTicket({
   coin,
@@ -62,16 +56,22 @@ export function PerpTradeTicket({
 }) {
   const { authenticated } = usePrivy();
   const { evm: wallet, evmAddress } = useSiseraWallets();
-  const liveAvailable = useLiveCapability("hyperliquid");
+  const liveStatus = useLiveCapabilityStatus("hyperliquid");
+  const liveAvailable = liveStatus === true;
   const limits = usePerpLimits();
+  const fee = useHyperliquidFee();
   const meta = usePerpMarketMeta(coin);
   const mid = usePerpMid(coin);
   const mark = mid ?? fallbackPrice ?? null;
   const [modeChoice, setModeChoice] = useState<"live" | "paper" | null>(null);
-  const mode = modeChoice ?? (liveAvailable ? "live" : "paper");
+  // Live is the default; Practice is only chosen automatically once live is known to be off.
+  const mode = modeChoice ?? (liveStatus === false ? "paper" : "live");
   const live = mode === "live";
   const { account, error: accountError } = useHyperliquidAccount(live ? evmAddress : null);
   const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const [limitPx, setLimitPx] = useState("");
+  const [postOnly, setPostOnly] = useState(false);
   const [margin, setMargin] = useState("");
   const [leverage, setLeverage] = useState(5);
   const [isCross, setIsCross] = useState(true);
@@ -89,6 +89,8 @@ export function PerpTradeTicket({
   );
   const position = account?.positions.find((item) => item.coin === coin) ?? null;
   const isLong = side === "buy";
+  const limit = orderType === "limit";
+  const entryPrice = limit ? Number(limitPx) : mark;
 
   // Hyperliquid sets leverage per coin, so the ticket starts from the open position's settings.
   useEffect(() => {
@@ -102,6 +104,10 @@ export function PerpTradeTicket({
   useEffect(() => {
     if (meta?.onlyIsolated) setIsCross(false);
   }, [meta?.onlyIsolated]);
+  // A new limit order starts at the current price, which the trader then adjusts.
+  useEffect(() => {
+    if (limit && !limitPx && mark) setLimitPx(String(Number(mark.toPrecision(6))));
+  }, [limit, limitPx, mark]);
 
   useEffect(() => {
     if (!live || !evmAddress || !account || account.accountValue <= 0) return;
@@ -120,19 +126,21 @@ export function PerpTradeTicket({
 
   const marginValue = Number(margin);
   const available = live ? (account?.available ?? 0) : null;
+  const siseraRate = live && fee ? fee.perpBps / 10_000 : 0;
   const preview = useMemo(() => {
-    if (!mark || !(marginValue > 0)) return null;
+    if (!entryPrice || !(entryPrice > 0) || !(marginValue > 0)) return null;
     const notional = marginValue * leverage;
     return {
       notional,
-      size: notional / mark,
-      fee: notional * TAKER_FEE,
-      liquidation: liquidationPrice(mark, leverage, meta?.maxLeverage ?? maxLeverage, isLong),
+      size: notional / entryPrice,
+      fee: notional * (TAKER_FEE + siseraRate),
+      liquidation: liquidationPrice(entryPrice, leverage, meta?.maxLeverage ?? maxLeverage, isLong),
     };
-  }, [mark, marginValue, leverage, meta?.maxLeverage, maxLeverage, isLong]);
+  }, [entryPrice, marginValue, leverage, meta?.maxLeverage, maxLeverage, isLong, siseraRate]);
   const tooSmall = preview != null && preview.notional < 10;
   const overAvailable = live && available != null && marginValue > available + 1e-9;
   const overLimit = preview != null && preview.notional > limits.maxNotionalUsd;
+  const badLimit = limit && !(Number(limitPx) > 0);
 
   async function run(action: () => Promise<void>) {
     setWorking(true);
@@ -150,7 +158,7 @@ export function PerpTradeTicket({
 
   async function enable() {
     if (!wallet) throw new Error("Your trading wallet is still being set up.");
-    await enableTrading(wallet);
+    await enableTrading(wallet, builderApproval(fee));
     setEnabled(true);
     toast.success("One-click trading enabled on this device");
   }
@@ -164,38 +172,42 @@ export function PerpTradeTicket({
 
   async function submitLive() {
     if (!evmAddress) throw new Error("Your trading wallet is still being set up.");
-    const prepared = await post({
-      action: "prepare",
+    const { prepared, result } = await placeOrder(evmAddress, wallet, {
       kind: "open",
-      user: evmAddress,
       coin,
       side,
       marginUsd: marginValue,
       leverage,
       isCross,
+      orderType,
+      ...(limit ? { limitPx: Number(limitPx), postOnly } : {}),
       ...(showTpsl && Number(takeProfit) > 0 ? { takeProfitPx: Number(takeProfit) } : {}),
       ...(showTpsl && Number(stopLoss) > 0 ? { stopLossPx: Number(stopLoss) } : {}),
     });
-    const signatures = await signPrepared(evmAddress, prepared.actions);
-    const result = await post({ action: "execute", orderId: prepared.orderId, signatures });
-    announcePerpTrade();
-    if (result.status === "filled") {
-      toast.success(
-        `${isLong ? "Long" : "Short"} ${result.filledSize} ${coin} filled at $${price(Number(result.averagePx))}`,
-        { description: `${prepared.leverage}x ${prepared.isCross ? "cross" : "isolated"}` },
-      );
+    const label = `${isLong ? "Long" : "Short"} ${prepared.size} ${coin}`;
+    const detail = `${prepared.leverage}x ${prepared.isCross ? "cross" : "isolated"}`;
+    if (result.status === "filled")
+      toast.success(`${label} filled at $${price(Number(result.averagePx))}`, {
+        description: detail,
+      });
+    else if (result.status === "open")
+      toast.success(`Limit order placed: ${label} at $${price(Number(prepared.limitPx))}`, {
+        description: `${detail} · it fills when the market reaches your price`,
+      });
+    else
+      toast.warning("Order sent. Confirming with Hyperliquid…", {
+        description: "Check Positions in a moment before placing it again.",
+      });
+    if (result.status !== "unknown") {
       setMargin("");
       setTakeProfit("");
       setStopLoss("");
-    } else {
-      toast.warning("Order sent. Confirming the fill with Hyperliquid…", {
-        description: "Check Positions in a moment before placing it again.",
-      });
     }
   }
 
   async function submitPaper() {
     if (!preview) throw new Error("Enter the margin to use.");
+    if (limit) throw new Error("Practice orders fill at market. Switch to Market or go Live.");
     const decimals = Math.min(6, meta?.szDecimals ?? 6);
     const quantity = (Math.floor(preview.size * 10 ** decimals) / 10 ** decimals).toFixed(decimals);
     if (!(Number(quantity) > 0)) throw new Error("This amount is below the minimum size.");
@@ -299,8 +311,9 @@ export function PerpTradeTicket({
               <Zap size={14} className="text-bronze-300" /> Enable one-click trading
             </p>
             <p className="leading-5 text-slate-400">
-              Approve a trading key for this device with one wallet signature. It can open and close
-              positions, but it can never withdraw your funds.
+              Approve a trading key for this device. It can open and close positions, but it can
+              never withdraw your funds.
+              {fee ? " You'll also approve Sisera's trading fee, shown on every order." : ""}
             </p>
             <button
               type="button"
@@ -327,6 +340,55 @@ export function PerpTradeTicket({
                 </button>
               ))}
             </div>
+
+            <div className="flex gap-4 border-b border-line text-[11px]" role="tablist">
+              {(["market", "limit"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="tab"
+                  aria-selected={orderType === option}
+                  onClick={() => setOrderType(option)}
+                  className={`-mb-px border-b-2 pb-1.5 font-semibold capitalize ${orderType === option ? "border-bronze-300 text-slate-100" : "border-transparent text-slate-500"}`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            {limit && (
+              <div>
+                <label className="block">
+                  <span className="flex justify-between">
+                    <span className="data-label">Limit price · USDC</span>
+                    {mark && (
+                      <button
+                        type="button"
+                        onClick={() => setLimitPx(String(Number(mark.toPrecision(6))))}
+                        className="font-mono text-[10px] text-slate-500 hover:text-slate-300"
+                      >
+                        Mark {price(mark)}
+                      </button>
+                    )}
+                  </span>
+                  <input
+                    value={limitPx}
+                    onChange={(event) => setLimitPx(event.target.value.trim())}
+                    inputMode="decimal"
+                    className="mt-2 h-10 w-full rounded border border-line bg-ink-raised px-3 text-right font-mono text-sm text-white"
+                  />
+                </label>
+                <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={postOnly}
+                    onChange={(event) => setPostOnly(event.target.checked)}
+                    className="accent-[#e9bd8c]"
+                  />
+                  Post only (rests on the book; never fills as a taker)
+                </label>
+              </div>
+            )}
 
             <label className="block">
               <span className="flex justify-between">
@@ -418,8 +480,8 @@ export function PerpTradeTicket({
                 ).map(([label, value, setValue]) => {
                   const target = Number(value);
                   const move =
-                    mark && target > 0 && preview
-                      ? ((target - mark) / mark) * (isLong ? 1 : -1) * preview.notional
+                    entryPrice && target > 0 && preview
+                      ? ((target - entryPrice) / entryPrice) * (isLong ? 1 : -1) * preview.notional
                       : null;
                   return (
                     <label key={label} className="block">
@@ -453,9 +515,12 @@ export function PerpTradeTicket({
                     ? `${preview.size.toLocaleString("en-US", { maximumFractionDigits: meta?.szDecimals ?? 4 })} ${coin} · ${usd(preview.notional)}`
                     : "—",
                 ],
-                ["Mark price", mark ? `$${price(mark)}` : "—"],
+                [limit ? "Limit price" : "Mark price", entryPrice ? `$${price(entryPrice)}` : "—"],
                 ["Est. liquidation", preview?.liquidation ? `$${price(preview.liquidation)}` : "—"],
-                ["Est. fee", preview ? usd(preview.fee) : "—"],
+                [
+                  live && fee ? `Est. fees (incl. Sisera ${fee.perpBps / 100}%)` : "Est. fees",
+                  preview ? usd(preview.fee) : "—",
+                ],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-3 py-2">
                   <dt className="text-slate-400">{label}</dt>
@@ -487,6 +552,7 @@ export function PerpTradeTicket({
                 tooSmall ||
                 overAvailable ||
                 overLimit ||
+                badLimit ||
                 (live && !liveAvailable)
               }
               onClick={() => void run(live ? submitLive : submitPaper)}
@@ -494,7 +560,7 @@ export function PerpTradeTicket({
             >
               {working
                 ? "Placing order…"
-                : `${live ? "" : "Practice "}${isLong ? "Long" : "Short"} ${coin}${preview ? ` · ${usd(preview.notional, 0)}` : ""}`}
+                : `${live ? "" : "Practice "}${limit ? "Limit " : ""}${isLong ? "Long" : "Short"} ${coin}${preview ? ` · ${usd(preview.notional, 0)}` : ""}`}
             </button>
           </>
         )}
@@ -503,7 +569,7 @@ export function PerpTradeTicket({
         <p className="flex items-start gap-1.5 text-[10px] leading-4 text-slate-500">
           <ShieldCheck size={12} className="mt-0.5 shrink-0" />
           {live
-            ? "Market order on your own Hyperliquid account. Sisera checks every order against your risk limits before it is placed."
+            ? `${limit ? "Limit" : "Market"} order on your own Hyperliquid account. Sisera checks every order against your risk limits before it is placed.`
             : "Practice orders fill at the live price in your practice account. No funds are used."}
         </p>
       </div>

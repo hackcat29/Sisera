@@ -48,7 +48,16 @@ export async function POST(request: NextRequest) {
             : response.status === 400
               ? "Please check the order and try again."
               : (result.message ?? "Trading is temporarily unavailable. Please try again shortly.");
-      return NextResponse.json({ message }, { status: response.status });
+      // Codes such as builder_fee_approval_required tell the client which approval to request.
+      return NextResponse.json(
+        {
+          message,
+          ...(typeof result.error === "string" ? { error: result.error } : {}),
+          ...(typeof result.builder === "string" ? { builder: result.builder } : {}),
+          ...(typeof result.maxFeeRate === "string" ? { maxFeeRate: result.maxFeeRate } : {}),
+        },
+        { status: response.status },
+      );
     }
     return NextResponse.json(result, { headers: { "cache-control": "no-store" } });
   } catch {

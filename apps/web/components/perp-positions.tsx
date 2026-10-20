@@ -1,34 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   announcePerpTrade,
+  assetFor,
   cancelOrder,
-  signPrepared,
+  placeOrder,
+  spotMarkets,
   useHyperliquidAccount,
   withdraw,
 } from "../lib/hyperliquid";
 import { signTone } from "../lib/sign";
 import { useSiseraWallets } from "../lib/use-sisera-wallets";
+import { PnlShareButton } from "./pnl-share";
 import { useLiveCapability } from "./use-live-capability";
 
 const usd = (value: number) =>
   `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const px = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: value >= 1000 ? 1 : value >= 1 ? 4 : 6 });
-
-async function post(body: Record<string, unknown>) {
-  const response = await fetch("/api/perps", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.message ?? "The order could not be placed.");
-  return payload.data;
-}
 
 /** The account's live Hyperliquid positions and open orders, with one-click close and cancel. */
 export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
@@ -38,6 +30,15 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  // Spot orders are keyed like "@142"; show them by name.
+  const [spotNames, setSpotNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    void spotMarkets()
+      .then((markets) =>
+        setSpotNames(new Map(markets.map((market) => [market.coin, `${market.symbol}/USDC`]))),
+      )
+      .catch(() => undefined);
+  }, []);
 
   async function run(key: string, action: () => Promise<void>) {
     setBusy(key);
@@ -52,16 +53,7 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
 
   async function close(coin: string, fraction: number) {
     if (!evmAddress) return;
-    const prepared = await post({
-      action: "prepare",
-      kind: "close",
-      user: evmAddress,
-      coin,
-      fraction,
-    });
-    const signatures = await signPrepared(evmAddress, prepared.actions);
-    const result = await post({ action: "execute", orderId: prepared.orderId, signatures });
-    announcePerpTrade();
+    const { result } = await placeOrder(evmAddress, wallet, { kind: "close", coin, fraction });
     if (result.status === "filled")
       toast.success(`Closed ${result.filledSize} ${coin} at $${px(Number(result.averagePx))}`);
     else toast.warning("Close sent. Confirming with Hyperliquid…");
@@ -69,9 +61,7 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
 
   async function cancel(coin: string, oid: number) {
     if (!evmAddress || !account) return;
-    const asset = account.assetIndex.get(coin);
-    if (asset == null) throw new Error("This market is unavailable.");
-    await cancelOrder(evmAddress, asset, oid);
+    await cancelOrder(evmAddress, await assetFor(coin, account), oid);
     announcePerpTrade();
     toast.success("Order cancelled");
   }
@@ -133,7 +123,7 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
           <p className="text-slate-500">No open positions. Your fills will appear here.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left">
+            <table className="w-full min-w-[820px] text-left">
               <thead className="font-mono text-[10px] uppercase text-slate-500">
                 <tr>
                   <th className="py-2">Market</th>
@@ -177,6 +167,18 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
                       </td>
                       <td className="text-right">
                         <div className="inline-flex gap-1">
+                          <PnlShareButton
+                            card={{
+                              coin: position.coin,
+                              market: "perp",
+                              side: long ? "long" : "short",
+                              leverage: position.leverage,
+                              roePct: position.returnOnEquity * 100,
+                              pnlUsd: position.unrealizedPnl,
+                              entryPx: position.entryPx,
+                              markPx: position.positionValue / Math.abs(position.size),
+                            }}
+                          />
                           <button
                             type="button"
                             disabled={busy != null}
@@ -224,7 +226,7 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
                 className="flex flex-wrap items-center justify-between gap-2 py-2 font-mono text-slate-300"
               >
                 <span>
-                  <span className="text-slate-100">{order.coin}</span>{" "}
+                  <span className="text-slate-100">{spotNames.get(order.coin) ?? order.coin}</span>{" "}
                   <span className={order.side === "buy" ? "text-emerald-300" : "text-rose-300"}>
                     {order.side === "buy" ? "Buy" : "Sell"}
                   </span>{" "}

@@ -96,11 +96,17 @@ export class JupiterQuoteClient {
     amount: string,
     taker: string,
     slippageBps?: number,
+    /** Sisera's platform fee, collected by Jupiter into the referral account's token accounts. */
+    referral?: { account: string; feeBps: number },
   ) {
     const url = new URL("https://api.jup.ag/swap/v2/order");
     const search = new URLSearchParams({ inputMint, outputMint, amount, taker });
     if (slippageBps != null)
       search.set("slippageBps", String(Math.max(1, Math.min(500, Math.round(slippageBps)))));
+    if (referral && referral.feeBps >= 50 && referral.feeBps <= 255) {
+      search.set("referralAccount", referral.account);
+      search.set("referralFee", String(Math.round(referral.feeBps)));
+    }
     url.search = search.toString();
     const response = await fetch(url, {
       headers: { "x-api-key": this.apiKey },

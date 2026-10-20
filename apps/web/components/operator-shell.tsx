@@ -54,7 +54,7 @@ const navigation = [
     items: [
       { href: "/stocks", label: "Stocks", hint: "⌥1", icon: CandlestickChart },
       { href: "/private-markets", label: "Private markets", hint: "⌥2", icon: Landmark },
-      { href: "/markets?venue=binance", label: "Crypto spot", hint: "⌥3", icon: ListFilter },
+      { href: "/markets", label: "Crypto spot", hint: "⌥3", icon: ListFilter },
       { href: "/terminal?venue=hyperliquid", label: "Perpetuals", hint: "", icon: Activity },
       { href: "/predictions", label: "Predictions", hint: "", icon: Target },
       { href: "/clawpump", label: "Agent markets", hint: "", icon: Boxes },
@@ -192,15 +192,19 @@ export function OperatorShell({
     }
     router.push(href);
   };
+  // A spot pair page (/spot/BTC) sits under Crypto spot (/markets) in the breadcrumb.
+  const routePath = pathname.startsWith("/spot/")
+    ? pathname.replace(/^\/spot/, "/markets")
+    : pathname;
   const current = navigation
     .flatMap((group) => group.items.map((item) => ({ group: group.label, ...item })))
     .find((item) => {
       const route = routeOf(item.href);
-      return pathname === route || pathname.startsWith(`${route}/`);
+      return routePath === route || routePath.startsWith(`${route}/`);
     });
   const detail =
-    current && pathname !== routeOf(current.href)
-      ? decodeURIComponent(pathname.slice(routeOf(current.href).length + 1))
+    current && routePath !== routeOf(current.href)
+      ? decodeURIComponent(routePath.slice(routeOf(current.href).length + 1))
       : null;
   const sidebarWidth = collapsed ? "lg:ml-[72px]" : "lg:ml-[232px]";
 

@@ -29,7 +29,6 @@ describe("control plane API", () => {
         PRIVY_APP_SECRET: "test",
         SISERA_LIVE_SOLANA_ENABLED: "false",
         SISERA_LIVE_PREDICTIONS_ENABLED: "false",
-        SISERA_LIVE_BINANCE_ENABLED: "false",
         SISERA_LIVE_HYPERLIQUID_ENABLED: "false",
       }),
       { readinessProbe: async () => false },
@@ -44,7 +43,6 @@ describe("control plane API", () => {
     expect(capabilities.json().live).toMatchObject({
       solana: false,
       predictions: false,
-      binance: false,
       hyperliquid: false,
     });
     await app.close();

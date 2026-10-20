@@ -5,7 +5,7 @@ import { evaluatePreTradeRisk } from "@sisera/risk";
 import Decimal from "decimal.js";
 import type { HeliusClient } from "./helius.js";
 import { JupiterOrderError, type JupiterQuoteClient, priceImpactFraction } from "./jupiter.js";
-import { TradeRejection } from "./solana-trading.js";
+import { GASLESS_SOL_THRESHOLD, TradeRejection } from "./solana-trading.js";
 
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -39,8 +39,15 @@ export class SolanaConvertService {
       jupiter: JupiterQuoteClient | null;
       trackedAsset: TrackedAssetLookup;
       maxNotionalUsd: number;
+      /** Sisera's Jupiter platform fee on conversions, when a referral account is configured. */
+      referral?: { account: string; feeBps: number } | undefined;
     },
   ) {}
+
+  private async solBalance(wallet: string) {
+    const lamports = await this.options.helius?.getSolLamports(wallet).catch(() => "0");
+    return BigInt(lamports ?? "0");
+  }
 
   async prepare(input: {
     subject: string;
@@ -77,6 +84,13 @@ export class SolanaConvertService {
           : "Your wallet does not have enough of this token.",
       );
 
+    // Jupiter only sponsors gas without a referral fee, so wallets that need gasless pay none.
+    const referral =
+      this.options.referral &&
+      (native ? BigInt(holding.rawBalance) : await this.solBalance(input.wallet)) >=
+        GASLESS_SOL_THRESHOLD
+        ? this.options.referral
+        : undefined;
     let order: Awaited<ReturnType<JupiterQuoteClient["order"]>>;
     try {
       order = await jupiter.order(
@@ -85,6 +99,7 @@ export class SolanaConvertService {
         input.amount,
         input.wallet,
         input.slippageBps,
+        referral,
       );
     } catch (error) {
       if (error instanceof JupiterOrderError) {

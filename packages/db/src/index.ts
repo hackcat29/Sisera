@@ -645,7 +645,7 @@ export async function createMarketLiveOrder(
 export async function updateMarketLiveOrder(
   connectionString: string,
   id: string,
-  status: "filled" | "rejected" | "unknown",
+  status: "filled" | "rejected" | "unknown" | "open" | "cancelled",
   venueOrderId?: string,
   fill?: { priceUsd: string; feeUsd: string; quantity?: string },
 ) {
@@ -671,6 +671,9 @@ export type HyperliquidPreparedOrder = {
   leverage: string;
   marginUsd: string | null;
   reduceOnly: boolean;
+  marketType: "perp" | "spot";
+  orderType: "market" | "limit";
+  limitPrice: string | null;
 };
 
 /** Records a risk-checked Hyperliquid order whose exact actions await the user's signature. */
@@ -683,11 +686,13 @@ export async function prepareHyperliquidOrder(
     await connection`
       INSERT INTO market_live_orders
         (id, tenant_id, subject, venue, symbol, side, quantity, client_order_id, status,
-         account_address, prepared_actions, expires_at, leverage, margin_usd, reduce_only)
+         account_address, prepared_actions, expires_at, leverage, margin_usd, reduce_only,
+         market_type, order_type, limit_price)
       VALUES (${order.id}, ${order.tenantId}, ${order.subject}, 'hyperliquid', ${order.symbol},
               ${order.side}, ${order.quantity}, ${order.clientOrderId}, 'prepared',
               ${order.accountAddress.toLowerCase()}, ${JSON.stringify(order.preparedActions)}::text::jsonb,
-              ${order.expiresAt}, ${order.leverage}, ${order.marginUsd}, ${order.reduceOnly})
+              ${order.expiresAt}, ${order.leverage}, ${order.marginUsd}, ${order.reduceOnly},
+              ${order.marketType}, ${order.orderType}, ${order.limitPrice})
     `;
   } finally {
     await connection.end();
@@ -730,11 +735,12 @@ export async function listUnreconciledHyperliquidOrders(connectionString: string
   try {
     const rows = await connection`
       SELECT id, client_order_id AS "clientOrderId", account_address AS "accountAddress",
-             symbol, quantity::text
+             symbol, quantity::text, status, updated_at AS "updatedAt"
       FROM market_live_orders
-      WHERE subject = ${subject} AND venue = 'hyperliquid' AND status IN ('submitting', 'unknown')
-        AND updated_at < now() - interval '20 seconds'
-      ORDER BY created_at DESC LIMIT 20
+      WHERE subject = ${subject} AND venue = 'hyperliquid'
+        AND (status = 'open'
+          OR (status IN ('submitting', 'unknown') AND updated_at < now() - interval '20 seconds'))
+      ORDER BY created_at DESC LIMIT 40
     `;
     return rows.map((row) => ({
       id: String(row.id),
@@ -742,6 +748,8 @@ export async function listUnreconciledHyperliquidOrders(connectionString: string
       accountAddress: String(row.accountAddress),
       symbol: String(row.symbol),
       quantity: String(row.quantity),
+      status: String(row.status),
+      updatedAt: new Date(row.updatedAt as string | Date),
     }));
   } finally {
     await connection.end();
@@ -765,7 +773,7 @@ export async function expireHyperliquidOrders(connectionString: string, subject:
 export async function listMarketLiveOrders(connectionString: string, subject: string) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
   try {
-    return await connection`SELECT id, venue, symbol, side, quantity::text, client_order_id AS "clientOrderId", venue_order_id AS "venueOrderId", status, fill_price::text AS "fillPrice", fee_usd::text AS "feeUsd", leverage::text, margin_usd::text AS "marginUsd", reduce_only AS "reduceOnly", created_at AS "createdAt" FROM market_live_orders WHERE subject = ${subject} AND status <> 'prepared' AND status <> 'expired' ORDER BY created_at DESC LIMIT 50`;
+    return await connection`SELECT id, venue, symbol, side, quantity::text, client_order_id AS "clientOrderId", venue_order_id AS "venueOrderId", status, fill_price::text AS "fillPrice", fee_usd::text AS "feeUsd", leverage::text, margin_usd::text AS "marginUsd", reduce_only AS "reduceOnly", market_type AS "marketType", order_type AS "orderType", limit_price::text AS "limitPrice", created_at AS "createdAt" FROM market_live_orders WHERE subject = ${subject} AND status <> 'prepared' AND status <> 'expired' ORDER BY created_at DESC LIMIT 50`;
   } finally {
     await connection.end();
   }

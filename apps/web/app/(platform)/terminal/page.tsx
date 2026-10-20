@@ -94,7 +94,7 @@ export default async function TerminalPage({
           >
             Hyperliquid perps
           </Link>
-          <Link href="/markets?venue=binance" className="rounded px-3 py-2 text-slate-400">
+          <Link href="/markets" className="rounded px-3 py-2 text-slate-400">
             Crypto spot →
           </Link>
           <span className="ml-auto text-[10px] text-slate-500">
