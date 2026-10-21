@@ -36,6 +36,8 @@ export class WithdrawalRejected extends Error {
   constructor(
     message: string,
     readonly status = 422,
+    /** Set when the wallet only lacks SOL for fees, so the app can offer to buy some. */
+    readonly needsLamports?: string,
   ) {
     super(message);
   }
@@ -199,6 +201,8 @@ export class SolanaWithdrawalService {
         createsRecipientAccount
           ? `Add about ${sol(fee + rent + 100_000n)} SOL to your wallet. Solana charges a network fee plus ${sol(rent)} SOL to open this token's account at the new address.`
           : `Add a little SOL (about ${sol(fee + 100_000n)}) to your wallet for the network fee.`,
+        422,
+        (fee + rent - lamports).toString(),
       );
     const transaction = await this.build(wallet, units, [
       ...(createsRecipientAccount
