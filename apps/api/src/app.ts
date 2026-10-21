@@ -119,6 +119,7 @@ import { PredictionPaperRejection, settlePredictionPaperOrder } from "./predicti
 import { researchPredictionMarket } from "./prediction-research.js";
 import { PredictionTradingService } from "./prediction-trading.js";
 import { SolanaConvertService, USDC_MINT } from "./solana-convert.js";
+import { SolanaGasTopUpService } from "./solana-gas-topup.js";
 import { SolanaTradingService, TradeRejection } from "./solana-trading.js";
 import { NATIVE_SOL, SolanaWithdrawalService, WithdrawalRejected } from "./solana-withdraw.js";
 import { StockNewsClient } from "./stock-news.js";
@@ -312,6 +313,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   const evmAssets = new EvmAssetClient(config.SISERA_EVM_RPC_URLS);
   const evmSwap = new EvmSwapService(bridge, evmAssets, config.SISERA_SWAP_MAX_USD);
   const solanaWithdrawals = new SolanaWithdrawalService(solanaRpcUrl);
+  const gasTopUps = new SolanaGasTopUpService(jupiter, helius);
   const hyperliquidDeposits = new HyperliquidDepositService({
     databaseUrl: config.DATABASE_URL,
     relay: bridge,
@@ -1894,11 +1896,77 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         return { data: await solanaWithdrawals.prepare(input) };
       } catch (error) {
         if (error instanceof WithdrawalRejected)
-          return reply.code(error.status).send({ message: error.message });
+          return reply.code(error.status).send({
+            message: error.message,
+            ...(error.needsLamports
+              ? { error: "needs_sol", needsLamports: error.needsLamports }
+              : {}),
+          });
         request.log.warn({ err: error }, "Solana withdrawal prepare failed");
         return reply
           .code(503)
           .send({ message: "Withdrawals are temporarily unavailable. Try again shortly." });
+      }
+    },
+  );
+  // Buys a little SOL with USDC for a wallet that holds tokens but no SOL to pay network fees.
+  app.post(
+    "/v1/solana/gas-topup/prepare",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const input = z
+        .object({
+          wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          needsLamports: z.string().regex(/^[1-9][0-9]{0,11}$/),
+        })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, input.wallet, "solana")))
+        return reply;
+      try {
+        return { data: await gasTopUps.prepare(input) };
+      } catch (error) {
+        if (error instanceof WithdrawalRejected)
+          return reply.code(error.status).send({ message: error.message });
+        request.log.warn({ err: error }, "SOL top-up quote failed");
+        return reply.code(503).send({ message: "SOL for fees can't be bought right now." });
+      }
+    },
+  );
+  app.post(
+    "/v1/solana/gas-topup/execute",
+    {
+      preHandler: requirePermission("portfolio:read"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const input = z
+        .object({
+          wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          requestId: z.string().min(1).max(100),
+          transaction: z.string().min(40).max(5000),
+          signedTransaction: z.string().min(40).max(5000),
+        })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, input.wallet, "solana")))
+        return reply;
+      try {
+        const result = await gasTopUps.execute(input);
+        request.log.info({ wallet: input.wallet, signature: result.signature }, "SOL top-up sent");
+        return { data: result };
+      } catch (error) {
+        if (error instanceof WithdrawalRejected)
+          return reply.code(error.status).send({ message: error.message });
+        request.log.warn({ err: error }, "SOL top-up failed");
+        return reply.code(503).send({ message: "SOL for fees can't be bought right now." });
       }
     },
   );

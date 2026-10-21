@@ -12,6 +12,9 @@ import { useSiseraWallets } from "../lib/use-sisera-wallets";
 import { useSolanaSigner } from "../lib/use-solana-signer";
 
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+/** The smallest swap the API tries when buying SOL for fees. */
+const MIN_TOP_UP_USDC = 2_000_000n;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const EXPLORERS: Record<number, string> = {
   1: "https://etherscan.io/tx/",
@@ -188,6 +191,7 @@ type PreparedSolana = {
   createsRecipientAccount: boolean;
   preparedAt: number;
 };
+type TopUp = { requestId: string; transaction: string; usdcAmount: string; solLamports: string };
 
 function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
   const signer = useSolanaSigner();
@@ -200,6 +204,10 @@ function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
   const [prepared, setPrepared] = useState<PreparedSolana | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** Lamports the wallet is short for fees, when Sisera can buy them with USDC. */
+  const [needsSol, setNeedsSol] = useState<string | null>(null);
+  const [topUp, setTopUp] = useState<TopUp | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -240,8 +248,10 @@ function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
     ];
   }, [wallet]);
   const asset = assets.find((item) => item.id === assetId) ?? assets[0] ?? null;
+  const usdcBalance = assets.find((item) => item.id === SOLANA_USDC)?.balance ?? 0n;
 
   async function review() {
+    setNotice(null);
     if (!address || !asset) throw new Error("Your Solana wallet is still loading.");
     const to = destination.trim();
     if (!SOLANA_ADDRESS.test(to)) throw new Error("Enter a valid Solana wallet address.");
@@ -262,8 +272,68 @@ function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
       }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message ?? "This withdrawal could not be prepared.");
+    if (!response.ok) {
+      // Short only of SOL for fees: offer to buy some with USDC instead of sending them away.
+      if (payload.error === "needs_sol" && usdcBalance >= MIN_TOP_UP_USDC) {
+        setNeedsSol(String(payload.needsLamports));
+        return;
+      }
+      throw new Error(payload.message ?? "This withdrawal could not be prepared.");
+    }
+    setNeedsSol(null);
     setPrepared({ ...payload.data, preparedAt: Date.now() });
+  }
+
+  async function quoteTopUp() {
+    if (!address || !needsSol) return;
+    const response = await fetch("/api/withdraw", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "topup-prepare", wallet: address, needsLamports: needsSol }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message ?? "SOL for fees can't be bought right now.");
+    setTopUp(payload.data);
+  }
+
+  async function confirmTopUp() {
+    if (!address || !topUp || !asset) return;
+    setBusy("Approve in your wallet…");
+    const [signedTransaction] = await signer.signAll([topUp.transaction]);
+    setBusy("Buying SOL…");
+    const response = await fetch("/api/withdraw", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "topup-execute",
+        wallet: address,
+        requestId: topUp.requestId,
+        transaction: topUp.transaction,
+        signedTransaction,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message ?? "The swap to SOL failed.");
+    const spent = BigInt(topUp.usdcAmount);
+    const left = usdcBalance - spent;
+    let lowered = false;
+    // Withdrawing USDC: the swap used some, so cap the amount at what is left.
+    if (asset.id === SOLANA_USDC) {
+      try {
+        if (toRaw(amount, asset.decimals) > left) {
+          setAmount(fromRaw(left, asset.decimals));
+          lowered = true;
+        }
+      } catch {
+        // The amount was not a number; leave it for the user to fix.
+      }
+    }
+    setNotice(
+      `Bought ${(Number(payload.data.solLamports ?? topUp.solLamports) / 1e9).toFixed(4)} SOL for $${fromRaw(spent, 6)} USDC. It stays in your wallet for fees.${lowered ? ` Your amount is now ${fromRaw(left, 6)} USDC, what's left after the swap.` : ""} Review your withdrawal again.`,
+    );
+    setTopUp(null);
+    setNeedsSol(null);
+    void load();
   }
 
   async function confirm() {
@@ -371,6 +441,8 @@ function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
             setAssetId(event.target.value);
             setAmount("");
             setMax(false);
+            setNeedsSol(null);
+            setTopUp(null);
           }}
           className={inputClass}
         >
@@ -416,6 +488,64 @@ function SolanaWithdraw({ onDone }: { onDone: (done: Done) => void }) {
           className={`${inputClass} font-mono text-xs`}
         />
       </Field>
+      {needsSol && (
+        <div className="rounded border border-bronze-400/30 bg-bronze-400/[0.05] p-3 text-xs leading-5">
+          <p className="font-semibold text-slate-100">Your wallet needs SOL for network fees</p>
+          {topUp ? (
+            <>
+              <p className="mt-1 text-slate-300">
+                Swap{" "}
+                <span className="font-mono text-slate-100">
+                  ${fromRaw(topUp.usdcAmount, 6)} USDC
+                </span>{" "}
+                for about{" "}
+                <span className="font-mono text-slate-100">
+                  {(Number(topUp.solLamports) / 1e9).toFixed(4)} SOL
+                </span>
+                . Jupiter pays this swap's network fee. The SOL stays in your wallet for future
+                fees.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  onClick={() => void run(confirmTopUp)}
+                  className="h-9 rounded bg-bronze-300 px-3 font-semibold text-[#0b1b24] disabled:opacity-50"
+                >
+                  {busy ?? "Confirm swap"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  onClick={() => setTopUp(null)}
+                  className="h-9 rounded border border-line px-3 text-slate-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-slate-300">
+                You need about {(Number(needsSol) / 1e9 + 0.0001).toFixed(4)} SOL more. Sisera can
+                buy it with a little of your USDC (from $2) in one step.
+              </p>
+              <button
+                type="button"
+                disabled={busy != null}
+                onClick={() => {
+                  setBusy("Getting a quote…");
+                  void run(quoteTopUp);
+                }}
+                className="mt-2 h-9 rounded bg-bronze-300 px-3 font-semibold text-[#0b1b24] disabled:opacity-50"
+              >
+                {busy ?? "Get SOL with USDC"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {notice && <p className="text-xs leading-5 text-emerald-300">{notice}</p>}
       <ErrorText message={message} />
       <button
         type="submit"

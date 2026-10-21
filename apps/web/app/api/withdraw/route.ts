@@ -3,7 +3,17 @@ import { auth } from "../../../auth";
 import { isSameOrigin } from "../../../lib/request-origin";
 import { serverApiUrl } from "../../../lib/server-api-url";
 
-function failure(status: number, payload: { message?: string }) {
+const PATHS: Record<string, string> = {
+  prepare: "/v1/solana/withdrawals/prepare",
+  execute: "/v1/solana/withdrawals/execute",
+  "topup-prepare": "/v1/solana/gas-topup/prepare",
+  "topup-execute": "/v1/solana/gas-topup/execute",
+};
+
+function failure(
+  status: number,
+  payload: { message?: string; error?: string; needsLamports?: string },
+) {
   const message =
     status === 401
       ? "Sign in to withdraw."
@@ -12,10 +22,18 @@ function failure(status: number, payload: { message?: string }) {
         : status === 400 || status === 422 || status === 503
           ? (payload.message ?? "Please review the withdrawal and try again.")
           : "Withdrawals are temporarily unavailable. Please try again shortly.";
-  return NextResponse.json({ message }, { status });
+  // A wallet that only lacks SOL for fees can have Sisera buy some; pass that through.
+  const needsSol =
+    payload.error === "needs_sol"
+      ? { error: payload.error, needsLamports: payload.needsLamports }
+      : {};
+  return NextResponse.json({ message, ...needsSol }, { status });
 }
 
-/** Prepares a Solana withdrawal for the wallet to sign, or broadcasts the signed transfer. */
+/**
+ * Prepares a Solana withdrawal for the wallet to sign or broadcasts the signed transfer, and buys
+ * a little SOL with USDC when the wallet has none for network fees.
+ */
 export async function POST(request: NextRequest) {
   if (
     !isSameOrigin(request) ||
@@ -25,11 +43,11 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ message: "Sign in to withdraw." }, { status: 401 });
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object" || (body.action !== "prepare" && body.action !== "execute"))
-    return NextResponse.json({ message: "Invalid withdrawal request." }, { status: 400 });
+  const path = body && typeof body === "object" ? PATHS[String(body.action)] : undefined;
+  if (!path) return NextResponse.json({ message: "Invalid withdrawal request." }, { status: 400 });
   const { action, ...payload } = body as Record<string, unknown>;
   try {
-    const response = await fetch(`${serverApiUrl()}/v1/solana/withdrawals/${action}`, {
+    const response = await fetch(`${serverApiUrl()}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -37,7 +55,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.timeout(action === "execute" ? 55000 : 20000),
+      signal: AbortSignal.timeout(String(action).endsWith("execute") ? 55000 : 30000),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return failure(response.status, result);
