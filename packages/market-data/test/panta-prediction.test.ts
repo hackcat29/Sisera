@@ -12,7 +12,7 @@ const registryOnly =
       : Promise.resolve(Response.json({ result: [] }));
 
 describe("PantaPredictionProvider", () => {
-  it("shows each market's cover picture from Panta's event list, and lists markets without it", async () => {
+  it("shows each market's cover picture from its Panta event, and lists markets without it", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-12T09:00:00Z"));
     const registered = "CLQqZ7r6WYC5xNumWrmC7UAkQ1Z6pdCbjJSy7wQu1DgL";
     const picture =
@@ -20,12 +20,9 @@ describe("PantaPredictionProvider", () => {
     let picturesUp = true;
     const fetcher = vi.fn().mockImplementation(async (url: string) => {
       if (url === "https://rpc.test") return Response.json({ error: { code: -32000 } });
-      if (url === "https://events.test") {
+      if (url === `https://events.test/registry/${registered}`) {
         if (!picturesUp) return new Response("down", { status: 503 });
-        return Response.json({
-          success: true,
-          data: [{ eventPda: registered, images: [picture] }],
-        });
+        return Response.json({ success: true, data: { eventPda: registered, images: [picture] } });
       }
       return Response.json({
         items: [{ marketId: registered, title: "Registered USDC event", endTime: 1798815600 }],
