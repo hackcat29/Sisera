@@ -783,7 +783,8 @@ export class PantaPredictionProvider {
   private cache: { until: number; markets: PredictionMarket[] } | null = null;
   private pending: Promise<PredictionMarket[]> | null = null;
   private registryIds = new Set<string>();
-  private pictures: { until: number; byEvent: Map<string, string> } | null = null;
+  /** Cover pictures by event address; a market's picture rarely changes. */
+  private readonly pictures = new Map<string, { until: number; url: string | null }>();
 
   constructor(
     private readonly baseUrl = "https://live-api.panta.market/api/v1",
@@ -791,40 +792,58 @@ export class PantaPredictionProvider {
     private readonly fetcher: Fetch = globalThis.fetch,
     private readonly rpcUrl = "https://mainnet.helius-rpc.com/?api-key=9d40fe27-02d9-4756-91b7-6b639d75de67",
     private readonly programId = "6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp",
-    /** Panta's public event list, which carries the cover picture its site shows per market. */
+    /** Panta's public event API, which serves the cover picture its site shows per market. */
     private readonly eventsUrl = "https://production-api.balr.fun/api/v1/events",
   ) {}
 
   /**
-   * Each market's cover picture, by event address. Neither the registry nor the on-chain account
-   * includes it, so it comes from the list panta.market itself renders. A failure keeps the last
-   * known pictures; markets without one simply show none.
+   * Cover pictures for these markets, by event address. Neither Panta's registry nor the on-chain
+   * account includes one, so each comes from the event record panta.market itself loads. Events
+   * are looked up one at a time: the full list is large and Panta's server often cuts it off
+   * mid-response. Pictures are kept for six hours; a failed lookup is retried on the next refresh,
+   * and a market without one simply shows none.
    */
-  private async eventPictures(): Promise<Map<string, string>> {
-    if (this.pictures && this.pictures.until > Date.now()) return this.pictures.byEvent;
-    try {
-      const response = await this.fetcher(this.eventsUrl, {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!response.ok) throw new Error(`Panta events returned ${response.status}`);
-      const payload = (await response.json()) as { data?: unknown };
-      const byEvent = new Map<string, string>();
-      for (const event of Array.isArray(payload?.data) ? payload.data : []) {
-        const row = event as Record<string, unknown>;
-        const picture = Array.isArray(row.images)
-          ? row.images.find(
-              (url): url is string => typeof url === "string" && url.startsWith("https://"),
-            )
-          : undefined;
-        if (typeof row.eventPda === "string" && picture)
-          byEvent.set(row.eventPda, thumbnail(picture));
-      }
-      this.pictures = { until: Date.now() + 10 * 60_000, byEvent };
-      return byEvent;
-    } catch {
-      return this.pictures?.byEvent ?? new Map();
+  private async picturesFor(ids: readonly string[]): Promise<Map<string, string>> {
+    const now = Date.now();
+    const missing = [...new Set(ids)]
+      .filter((id) => (this.pictures.get(id)?.until ?? 0) <= now)
+      .slice(0, 60);
+    for (let start = 0; start < missing.length; start += 6) {
+      await Promise.all(
+        missing.slice(start, start + 6).map(async (id) => {
+          try {
+            const response = await this.fetcher(
+              `${this.eventsUrl.replace(/\/$/, "")}/registry/${encodeURIComponent(id)}`,
+              { headers: { accept: "application/json" }, signal: AbortSignal.timeout(6000) },
+            );
+            if (response.status === 404) {
+              this.pictures.set(id, { until: now + 6 * 3_600_000, url: null });
+              return;
+            }
+            if (!response.ok) return;
+            const payload = (await response.json()) as { data?: { images?: unknown } };
+            const images = payload?.data?.images;
+            const picture = Array.isArray(images)
+              ? images.find(
+                  (url): url is string => typeof url === "string" && url.startsWith("https://"),
+                )
+              : undefined;
+            this.pictures.set(id, {
+              until: now + 6 * 3_600_000,
+              url: picture ? thumbnail(picture) : null,
+            });
+          } catch {
+            // Retried on the next refresh.
+          }
+        }),
+      );
     }
+    const found = new Map<string, string>();
+    for (const id of ids) {
+      const url = this.pictures.get(id)?.url;
+      if (url) found.set(id, url);
+    }
+    return found;
   }
 
   private withPicture(market: PredictionMarket, pictures: Map<string, string>): PredictionMarket {
@@ -847,7 +866,9 @@ export class PantaPredictionProvider {
 
   async getMarket(id: string): Promise<PredictionMarket | null> {
     const market = await this.findMarket(id);
-    return market ? this.withPicture(market, await this.eventPictures()) : null;
+    return market
+      ? this.withPicture(market, await this.picturesFor([market.eventId ?? market.id]))
+      : null;
   }
 
   private async findMarket(id: string): Promise<PredictionMarket | null> {
@@ -932,7 +953,16 @@ export class PantaPredictionProvider {
     const refresh = () => {
       this.pending ??= this.loadMarkets()
         .then(async (markets) => {
-          const pictures = await this.eventPictures();
+          // Only markets on the list need a picture; resolved archives are never shown.
+          const pictures = await this.picturesFor(
+            markets
+              .filter(
+                (market) =>
+                  market.status === "open" &&
+                  (!market.closesAt || Date.parse(market.closesAt) > Date.now()),
+              )
+              .map((market) => market.eventId ?? market.id),
+          );
           const pictured = markets.map((market) => this.withPicture(market, pictures));
           if (this.cache) this.cache = { ...this.cache, markets: pictured };
           return pictured;
