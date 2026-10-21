@@ -359,10 +359,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     }
     return false;
   }
-  const research =
-    config.OPENROUTER_API_KEY && config.SISERA_INTELLIGENCE_MODEL
-      ? new OpenRouterResearchClient(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
-      : null;
+  // The configured model is tried first, then free fallbacks, so a key alone enables research.
+  const research = config.OPENROUTER_API_KEY
+    ? new OpenRouterResearchClient(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
+    : null;
   const marketProvider = (venue: string) => (venue === "hyperliquid" ? hyperliquid : marketData);
   const predictions =
     dependencies.predictions ??
@@ -885,10 +885,9 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
     config.PRIVY_AUTHORIZATION_PRIVATE_KEY,
     config.SISERA_DELEGATED_SIGNING_ENABLED,
   );
-  const chat =
-    config.OPENROUTER_API_KEY && config.SISERA_INTELLIGENCE_MODEL
-      ? new OpenRouterChat(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
-      : null;
+  const chat = config.OPENROUTER_API_KEY
+    ? new OpenRouterChat(config.OPENROUTER_API_KEY, config.SISERA_INTELLIGENCE_MODEL)
+    : null;
   const basis = new LiveBasisService(config.BINANCE_SPOT_BASE_URL, config.HYPERLIQUID_BASE_URL);
   registerTradeCheckRoutes(
     app,
@@ -1694,13 +1693,18 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         articles: inputArticles,
       };
       // Prefer the language model; fall back to evidence-only research so it is always available.
-      let modelUsed = research ? config.SISERA_INTELLIGENCE_MODEL : "sisera-evidence";
+      let modelUsed = "sisera-evidence";
       const assessment = research
-        ? await research.assess(context).catch((error) => {
-            request.log.warn({ error }, "research model failed; using evidence-only assessment");
-            modelUsed = "sisera-evidence";
-            return assessFromEvidence(context);
-          })
+        ? await research
+            .assessWithModel(context)
+            .then((result) => {
+              modelUsed = result.model;
+              return result.assessment;
+            })
+            .catch((error) => {
+              request.log.warn({ error }, "research model failed; using evidence-only assessment");
+              return assessFromEvidence(context);
+            })
         : assessFromEvidence(context);
       const evidenceSources =
         Number(tokenPrice !== null) +
