@@ -3,6 +3,7 @@
 import { useLivePrice } from "../lib/live-prices";
 import { formatSignedPct, signTone } from "../lib/sign";
 import { LiveNumber } from "./live-number";
+import { TokenAvatar } from "./token-avatar";
 
 const usd = (value: number) =>
   `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -19,7 +20,9 @@ export function PrivateLiveStats({
   markPrice,
   impliedValuation,
   markValuation,
+  imageUrl,
 }: {
+  imageUrl?: string | null | undefined;
   mint: string;
   company: string;
   symbol: string;
@@ -37,14 +40,17 @@ export function PrivateLiveStats({
   return (
     <>
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-5 sm:px-6">
-        <div className="max-w-3xl">
-          <p className="data-label text-bronze-300">{symbol} · Pre-IPO token on Solana</p>
-          <h1 className="display mt-2 text-[32px] leading-tight text-bone">
-            {company.replace(/ PreStocks$/, "")}
-          </h1>
-          {description && (
-            <p className="mt-2 text-[13px] leading-6 text-slate-400">{description}</p>
-          )}
+        <div className="flex max-w-3xl items-start gap-4">
+          <TokenAvatar src={imageUrl} symbol={symbol} size={52} className="rounded-xl" />
+          <div>
+            <p className="data-label text-bronze-300">{symbol} · Pre-IPO token on Solana</p>
+            <h1 className="display mt-2 text-[32px] leading-tight text-bone">
+              {company.replace(/ PreStocks$/, "")}
+            </h1>
+            {description && (
+              <p className="mt-2 text-[13px] leading-6 text-slate-400">{description}</p>
+            )}
+          </div>
         </div>
         <div className="text-right">
           <p className="text-3xl text-bone">

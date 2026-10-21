@@ -107,6 +107,7 @@ export default async function PreStockDetail({ params }: { params: Promise<{ sym
   return (
     <div className="min-h-full bg-ink">
       <PrivateLiveStats
+        imageUrl={asset.imageUrl}
         mint={mint}
         company={asset.company}
         symbol={asset.instrument.baseAsset}

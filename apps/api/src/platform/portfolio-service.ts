@@ -339,9 +339,9 @@ export class PortfolioService {
       ...DEFAULT_MANDATE,
       ...(preferences.mandate as Partial<MandateLimits>),
     };
-    const changes = new Map(
-      (await this.catalog.list()).map((asset) => [asset.mint, asset.change24hPct]),
-    );
+    const catalogAssets = await this.catalog.list();
+    const changes = new Map(catalogAssets.map((asset) => [asset.mint, asset.change24hPct]));
+    const images = new Map(catalogAssets.map((asset) => [asset.mint, asset.imageUrl]));
     const dailyPnlUsd = valued.reduce((sum, position) => {
       const change = changes.get(position.instrumentKey) ?? null;
       const value = Number(position.marketValueUsd ?? 0);
@@ -393,7 +393,11 @@ export class PortfolioService {
     return {
       mode,
       summary,
-      positions: valued,
+      // Logos for Solana assets come from the catalog; the app draws venue icons for the rest.
+      positions: valued.map((position) => ({
+        ...position,
+        imageUrl: images.get(position.instrumentKey) ?? null,
+      })),
       cash: cashBreakdown,
       mandate,
       mandateLimits,

@@ -3,8 +3,10 @@
 import { Search } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { perpLogos } from "../lib/asset-logo";
 import { usePerpMid } from "../lib/market-streams";
 import { formatSignedPct, signTone } from "../lib/sign";
+import { TokenAvatar } from "./token-avatar";
 
 type Perp = { coin: string; prevDay: number; mark: number; volumeUsd: number; funding: number };
 
@@ -16,11 +18,14 @@ function PerpChip({ perp, active, interval }: { perp: Perp; active: boolean; int
       href={`/terminal?symbol=${perp.coin}USDT&interval=${interval}&venue=hyperliquid`}
       className={`flex min-w-40 shrink-0 items-center justify-between gap-4 border px-3 py-2.5 hover:border-slate-500 ${active ? "border-bronze-400/60 bg-bronze-400/[0.08]" : "border-line bg-panel"}`}
     >
-      <div>
-        <p className="text-xs font-semibold text-bone">{perp.coin}</p>
-        <p className="num mt-0.5 text-[11px] text-slate-400">
-          {mid.toLocaleString("en-US", { maximumFractionDigits: mid >= 1 ? 2 : 6 })}
-        </p>
+      <div className="flex items-center gap-2.5">
+        <TokenAvatar src={perpLogos(perp.coin)} symbol={perp.coin} size={22} />
+        <div>
+          <p className="text-xs font-semibold text-bone">{perp.coin}</p>
+          <p className="num mt-0.5 text-[11px] text-slate-400">
+            {mid.toLocaleString("en-US", { maximumFractionDigits: mid >= 1 ? 2 : 6 })}
+          </p>
+        </div>
       </div>
       <span className={`num text-xs ${signTone(change)}`}>{formatSignedPct(change)}</span>
     </Link>

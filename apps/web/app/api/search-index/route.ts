@@ -22,6 +22,7 @@ export async function GET() {
           href: `/stocks/${encodeURIComponent(stock.symbol)}`,
           name: stock.name,
           symbol: stock.symbol,
+          imageUrl: stock.logoUrl ?? null,
           category: "Public stock" as const,
         }))
       : []),
@@ -30,6 +31,7 @@ export async function GET() {
           href: `/private-markets/${encodeURIComponent(asset.instrument.baseAsset)}`,
           name: asset.company,
           symbol: asset.instrument.baseAsset,
+          imageUrl: asset.imageUrl,
           category: "Private market" as const,
         }))
       : []),

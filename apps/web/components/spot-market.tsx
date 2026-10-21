@@ -5,6 +5,7 @@ import { ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { spotLogos } from "../lib/asset-logo";
 import {
   type SpotMarket,
   enableTrading,
@@ -21,6 +22,7 @@ import { useSiseraWallets } from "../lib/use-sisera-wallets";
 import { LiveNumber } from "./live-number";
 import { PerpDeposit } from "./perp-deposit";
 import { SignInToTrade } from "./sign-in-to-trade";
+import { TokenAvatar } from "./token-avatar";
 import { TradingChart } from "./trading-chart";
 import { builderApproval, useHyperliquidFee, useLiveCapabilityStatus } from "./use-live-capability";
 
@@ -64,10 +66,11 @@ export function SpotMarketView({ symbol, signedIn }: { symbol: string; signedIn:
             </Link>{" "}
             / Hyperliquid
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-[-0.035em] text-slate-50">
+          <h1 className="mt-1 flex items-center gap-3 text-2xl font-semibold tracking-[-0.035em] text-slate-50">
+            <TokenAvatar src={spotLogos(market)} symbol={market.symbol} size={34} />
             {market.symbol} / USDC
             {market.name !== market.symbol && (
-              <span className="ml-3 text-sm font-normal text-slate-400">{market.name}</span>
+              <span className="text-sm font-normal text-slate-400">{market.name}</span>
             )}
           </h1>
         </div>

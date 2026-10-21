@@ -77,6 +77,7 @@ export type PublicStock = {
   volume24hUsd: number | null;
   liquidityUsd: number | null;
   chartUrl: string | null;
+  logoUrl?: string | null;
   tradingHalted: boolean;
   fetchedAt: string;
   source: "xstocks";

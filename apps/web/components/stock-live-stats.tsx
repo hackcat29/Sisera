@@ -3,6 +3,7 @@
 import { useLivePrice } from "../lib/live-prices";
 import { formatSignedPct, signTone } from "../lib/sign";
 import { LiveNumber } from "./live-number";
+import { TokenAvatar } from "./token-avatar";
 
 const usd = (value: number | null | undefined) =>
   value == null
@@ -25,7 +26,9 @@ export function StockLiveStats({
   liquidityUsd,
   referencePrice,
   referenceLive,
+  logoUrl,
 }: {
+  logoUrl?: string | null | undefined;
   mint: string;
   name: string;
   symbol: string;
@@ -56,11 +59,14 @@ export function StockLiveStats({
   return (
     <>
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line px-4 py-5 sm:px-6">
-        <div>
-          <p className="data-label text-bronze-300">
-            {underlyingSymbol} · {symbol} · Tokenized stock on Solana
-          </p>
-          <h1 className="display mt-2 text-[32px] leading-tight text-bone">{name}</h1>
+        <div className="flex items-center gap-4">
+          <TokenAvatar src={logoUrl} symbol={underlyingSymbol} size={52} className="rounded-xl" />
+          <div>
+            <p className="data-label text-bronze-300">
+              {underlyingSymbol} · {symbol} · Tokenized stock on Solana
+            </p>
+            <h1 className="display mt-2 text-[32px] leading-tight text-bone">{name}</h1>
+          </div>
         </div>
         <div className="text-right">
           <p className="text-3xl text-bone">

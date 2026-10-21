@@ -21,6 +21,7 @@ import {
   getReferenceMarkets,
   getSolanaWallet,
 } from "../../../../lib/api";
+import { perpLogos } from "../../../../lib/asset-logo";
 import { signTone } from "../../../../lib/sign";
 import { valueSolanaWallet } from "../../../../lib/wallet-observation";
 
@@ -192,7 +193,7 @@ export default async function PortfolioPage({
           <div className="mt-4 divide-y divide-line border-t border-line text-xs">
             <div className="flex items-center justify-between gap-3 py-3">
               <div className="flex items-center gap-3">
-                <TokenAvatar src={null} symbol="SOL" />
+                <TokenAvatar src={perpLogos("SOL")} symbol="SOL" />
                 <div>
                   <p className="font-semibold text-slate-100">SOL</p>
                   <p className="text-[10px] text-slate-500">Network fees</p>
@@ -374,6 +375,12 @@ export default async function PortfolioPage({
                       className="border-t border-line font-mono text-slate-300"
                     >
                       <td className="py-2 text-slate-100">
+                        <TokenAvatar
+                          src={perpLogos(position.coin)}
+                          symbol={position.coin}
+                          size={18}
+                          className="mr-2 inline-grid rounded-full align-middle"
+                        />
                         {position.coin} · {position.leverage}x
                       </td>
                       <td>{position.size}</td>

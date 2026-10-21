@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { pct, platform, usd } from "../../lib/platform";
+import { TokenAvatar } from "../token-avatar";
 import { Loading, Note, Panel } from "./ui";
 
 type Row = {
   symbol: string;
   name: string;
+  imageUrl?: string | null;
   sector: string;
   priceUsd: number | null;
   markPriceUsd: number | null;
@@ -103,14 +105,19 @@ export function PrivateRankings() {
                 >
                   <td className="px-4 py-2.5 text-slate-500">{index + 1}</td>
                   <td className="px-4 py-2.5">
-                    <Link
-                      prefetch={false}
-                      href={`/private-markets/${encodeURIComponent(row.symbol)}`}
-                      className="font-sans font-semibold text-bone hover:text-bronze-200"
-                    >
-                      {row.name}
-                    </Link>
-                    <p className="font-sans text-[10px] text-slate-500">{row.sector}</p>
+                    <div className="flex items-center gap-2.5">
+                      <TokenAvatar src={row.imageUrl} symbol={row.symbol} size={26} />
+                      <div>
+                        <Link
+                          prefetch={false}
+                          href={`/private-markets/${encodeURIComponent(row.symbol)}`}
+                          className="font-sans font-semibold text-bone hover:text-bronze-200"
+                        >
+                          {row.name}
+                        </Link>
+                        <p className="font-sans text-[10px] text-slate-500">{row.sector}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-200" title={row.priceSource}>
                     {usd(row.priceUsd)}

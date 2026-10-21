@@ -38,6 +38,7 @@ import { MarketSession } from "./market-session";
 import { OperatorProfile } from "./operator-profile";
 import { PortfolioConnect } from "./portfolio-connect";
 import { SiseraMark } from "./sisera-mark";
+import { TokenAvatar } from "./token-avatar";
 import { WithdrawButton } from "./withdraw-funds";
 
 export { SiseraMark } from "./sisera-mark";
@@ -46,6 +47,7 @@ type SearchAsset = {
   href: string;
   name: string;
   symbol: string;
+  imageUrl?: string | null;
   category: "Public stock" | "Private market";
 };
 
@@ -539,9 +541,12 @@ export function OperatorShell({
                       onSelect={() => navigate(asset.href)}
                       className="mt-1 flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-sm normal-case tracking-normal text-slate-300 data-[selected=true]:bg-slate-800 data-[selected=true]:text-white"
                     >
-                      <span className="truncate">
-                        {asset.name}{" "}
-                        <span className="font-mono text-slate-500">{asset.symbol}</span>
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <TokenAvatar src={asset.imageUrl} symbol={asset.symbol} size={22} />
+                        <span className="truncate">
+                          {asset.name}{" "}
+                          <span className="font-mono text-slate-500">{asset.symbol}</span>
+                        </span>
                       </span>
                       <span className="shrink-0 font-mono text-[10px] text-slate-500">
                         {asset.category}

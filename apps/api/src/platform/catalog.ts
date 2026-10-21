@@ -208,7 +208,7 @@ export class AssetCatalog {
         referenceValuationUsd: null,
         tradingHalted: stock.tradingHalted,
         pairedStock: null,
-        imageUrl: null,
+        imageUrl: stock.logoUrl,
         observedAt: quote ? new Date(quote.at).toISOString() : stock.fetchedAt,
       });
     }

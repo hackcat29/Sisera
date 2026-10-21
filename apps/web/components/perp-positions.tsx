@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { perpLogos, spotLogos } from "../lib/asset-logo";
 import {
   type SpotMarket,
   announcePerpTrade,
@@ -16,6 +17,7 @@ import {
 import { signTone } from "../lib/sign";
 import { useSiseraWallets } from "../lib/use-sisera-wallets";
 import { PnlShareButton } from "./pnl-share";
+import { TokenAvatar } from "./token-avatar";
 import { useLiveCapability } from "./use-live-capability";
 
 const usd = (value: number) =>
@@ -149,6 +151,12 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
                   return (
                     <tr key={position.coin} className="border-t border-line">
                       <td className="py-2.5">
+                        <TokenAvatar
+                          src={perpLogos(position.coin)}
+                          symbol={position.coin}
+                          size={18}
+                          className="mr-2 inline-grid rounded-full align-middle"
+                        />
                         <Link
                           prefetch={false}
                           href={`/terminal?venue=hyperliquid&symbol=${position.coin}USDT`}
@@ -234,6 +242,12 @@ export function PerpPositions({ activeCoin }: { activeCoin?: string }) {
               return (
                 <div key={balance.token} className="flex justify-between gap-3 py-2">
                   <span>
+                    <TokenAvatar
+                      src={market ? spotLogos(market) : null}
+                      symbol={market?.symbol ?? balance.token}
+                      size={18}
+                      className="mr-2 inline-grid rounded-full align-middle"
+                    />
                     {market ? (
                       <Link
                         prefetch={false}
