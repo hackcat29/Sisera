@@ -84,7 +84,7 @@ import { HeliusClient } from "./helius.js";
 import { HyperEvmWalletClient } from "./hyperevm.js";
 import { HyperliquidDepositService } from "./hyperliquid-deposit.js";
 import { HyperliquidTradingService } from "./hyperliquid-trading.js";
-import { JupiterQuoteClient } from "./jupiter.js";
+import { JupiterQuoteClient, swapFailure } from "./jupiter.js";
 import { LivePriceHub } from "./live-prices.js";
 import { PaperOrderRejection, settleMarketPaperOrder } from "./market-paper.js";
 import {
@@ -231,7 +231,8 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
   const hyperEvmWallet = new HyperEvmWalletClient();
   const tokenValuer = new TokenValuer(config.JUPITER_API_KEY);
   const clawpump = config.CLAWPUMP_API_KEY ? new ClawpumpClient(config.CLAWPUMP_API_KEY) : null;
-  const jupiter = config.JUPITER_API_KEY ? new JupiterQuoteClient(config.JUPITER_API_KEY) : null;
+  // Without a key, or with one Jupiter rejects, requests use Jupiter's keyless API.
+  const jupiter = new JupiterQuoteClient(config.JUPITER_API_KEY);
   // Agent tokens are resolved through the catalog, which is constructed once live prices exist.
   let catalogRef: AssetCatalog | null = null;
   const solanaTrading = new SolanaTradingService(
@@ -269,7 +270,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
       config.DATABASE_URL &&
       config.PRIVY_APP_ID &&
       config.PRIVY_APP_SECRET &&
-      config.JUPITER_API_KEY &&
       config.HELIUS_API_KEY,
   );
   const predictionsLiveReady = Boolean(
@@ -1779,10 +1779,6 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           amount: z.string().regex(/^[1-9][0-9]{0,18}$/),
         })
         .parse(request.query);
-      if (!jupiter)
-        return reply
-          .code(503)
-          .send({ error: "provider_unavailable", message: "Jupiter API is not configured" });
       return { data: await jupiter.preview(inputMint, outputMint, amount) };
     },
   );
@@ -2035,16 +2031,14 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           amount: z.string().regex(/^[1-9][0-9]{0,18}$/),
         })
         .parse(request.query);
-      if (!jupiter)
-        return reply
-          .code(503)
-          .send({ error: "provider_unavailable", message: "Swaps are not available right now." });
       try {
         return { data: await jupiter.preview(inputMint, USDC_MINT, amount) };
-      } catch {
-        return reply.code(422).send({
-          error: "no_route",
-          message: "No swap route with enough liquidity was found for this token.",
+      } catch (error) {
+        const failure = swapFailure(error);
+        request.log.warn({ err: error, inputMint }, "swap quote failed");
+        return reply.code(failure.noRoute ? 422 : 503).send({
+          error: failure.noRoute ? "no_route" : "provider_unavailable",
+          message: failure.message,
         });
       }
     },

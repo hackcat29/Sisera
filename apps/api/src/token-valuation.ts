@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type JupiterFetch, jupiterFetch } from "./jupiter-api.js";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -58,20 +59,14 @@ export class TokenValuer {
   >();
   private readonly metadata = new Map<string, z.infer<typeof Tokens>[number] | null>();
 
-  constructor(
-    private readonly apiKey?: string,
-    private readonly fetcher: typeof fetch = globalThis.fetch,
-  ) {}
+  private readonly jupiter: JupiterFetch;
 
-  private get base() {
-    return this.apiKey ? "https://api.jup.ag" : "https://lite-api.jup.ag";
+  constructor(apiKey?: string, fetcher?: typeof fetch) {
+    this.jupiter = jupiterFetch(apiKey, fetcher);
   }
 
   private async get(path: string) {
-    const response = await this.fetcher(`${this.base}${path}`, {
-      headers: this.apiKey ? { "x-api-key": this.apiKey } : {},
-      signal: AbortSignal.timeout(6000),
-    });
+    const response = await this.jupiter(path, { signal: AbortSignal.timeout(6000) });
     if (!response.ok) throw new Error(`Jupiter returned ${response.status}`);
     return response.json() as Promise<unknown>;
   }

@@ -4,7 +4,12 @@ import { applyOrderEvent, createOrderRecord } from "@sisera/oms";
 import { evaluatePreTradeRisk } from "@sisera/risk";
 import Decimal from "decimal.js";
 import type { HeliusClient } from "./helius.js";
-import { JupiterOrderError, type JupiterQuoteClient, priceImpactFraction } from "./jupiter.js";
+import {
+  JupiterOrderError,
+  type JupiterQuoteClient,
+  priceImpactFraction,
+  swapFailure,
+} from "./jupiter.js";
 import { GASLESS_SOL_THRESHOLD, TradeRejection } from "./solana-trading.js";
 
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -113,7 +118,8 @@ export class SolanaConvertService {
           throw new TradeRejection("Your wallet does not have enough of this token.");
         throw new TradeRejection("No swap route is available for this token right now.");
       }
-      throw new TradeRejection("No swap route with enough liquidity was found for this token.");
+      const failure = swapFailure(error);
+      throw new TradeRejection(failure.message, failure.noRoute ? 422 : 503);
     }
     if (
       order.inputMint !== input.inputMint ||

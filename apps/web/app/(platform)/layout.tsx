@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { auth } from "../../auth";
+import { ClientErrorListener } from "../../components/client-error-listener";
 import { OperatorShell } from "../../components/operator-shell";
 import { SiseraPrivyProvider } from "../../components/privy-provider";
 import { SessionRenewal } from "../../components/session-renewal";
@@ -16,6 +17,7 @@ export default async function PlatformLayout({ children }: { children: ReactNode
   return (
     <SiseraPrivyProvider appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID}>
       <SessionRenewal />
+      <ClientErrorListener />
       {signedIn && <WalletProvisioner />}
       <OperatorShell
         operator={operator}
