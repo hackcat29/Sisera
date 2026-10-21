@@ -180,6 +180,7 @@ export default async function PublicStockPage({ params }: { params: Promise<{ sy
   return (
     <div className="min-h-full bg-ink">
       <StockLiveStats
+        logoUrl={stock.logoUrl}
         mint={stock.mint}
         name={stock.name}
         symbol={stock.symbol}

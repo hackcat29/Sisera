@@ -12,6 +12,7 @@ import { PerpMarketStrip } from "../../../components/perp-market-strip";
 import { PerpTradeTicket } from "../../../components/perp-trade-ticket";
 import { SignInToTrade } from "../../../components/sign-in-to-trade";
 import { TerminalDetails } from "../../../components/terminal-details";
+import { TokenAvatar } from "../../../components/token-avatar";
 import { TradingChart } from "../../../components/trading-chart";
 import {
   type Venue,
@@ -22,6 +23,7 @@ import {
   getOrderBook,
   getReferenceMarkets,
 } from "../../../lib/api";
+import { perpLogos } from "../../../lib/asset-logo";
 import { signTone } from "../../../lib/sign";
 
 export const metadata: Metadata = {
@@ -107,9 +109,12 @@ export default async function TerminalPage({
         <section className="mb-4 rounded-lg border border-line bg-panel px-5 py-4">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
             <div className="flex min-w-44 items-center gap-3 border-r border-line pr-8">
-              <div className="grid size-11 shrink-0 place-items-center rounded-lg bg-[#273943] font-mono text-lg font-semibold text-[#f4d8b8]">
-                {market?.instrument.baseAsset.slice(0, 1) ?? symbol.slice(0, 1)}
-              </div>
+              <TokenAvatar
+                src={perpLogos(symbol.replace(/USDT$/, ""))}
+                symbol={market?.instrument.baseAsset ?? symbol.replace(/USDT$/, "")}
+                size={44}
+                className="rounded-lg"
+              />
               <div>
                 <h2 className="text-lg font-semibold text-slate-50">
                   {market?.instrument.displaySymbol ?? `${symbol.replace("USDT", "")} / USD`}

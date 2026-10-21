@@ -8,6 +8,7 @@ import type { PreStock } from "../lib/api";
 import { useLivePrices } from "../lib/live-prices";
 import { formatSignedPct, signTone } from "../lib/sign";
 import { LiveNumber } from "./live-number";
+import { TokenAvatar } from "./token-avatar";
 
 type SortKey = "company" | "premium" | "token" | "valuation";
 const dollars = (value: string, compact = false) =>
@@ -119,13 +120,21 @@ export function PrivateMarketScreener({ markets }: { markets: PreStock[] }) {
                       <Link
                         prefetch={false}
                         href={href}
+                        className="flex items-center gap-3"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <span className="font-semibold text-bone">
-                          {market.company.replace(/ PreStocks$/, "")}
-                        </span>
-                        <span className="ml-2 font-mono text-[11px] text-slate-400">
-                          {market.instrument.baseAsset}
+                        <TokenAvatar
+                          src={market.imageUrl}
+                          symbol={market.instrument.baseAsset}
+                          size={26}
+                        />
+                        <span>
+                          <span className="font-semibold text-bone">
+                            {market.company.replace(/ PreStocks$/, "")}
+                          </span>
+                          <span className="ml-2 font-mono text-[11px] text-slate-400">
+                            {market.instrument.baseAsset}
+                          </span>
                         </span>
                       </Link>
                     </td>

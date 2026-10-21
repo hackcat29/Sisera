@@ -158,6 +158,7 @@ describe("stock provider boundaries", () => {
               {
                 name: "Xerox xStock",
                 symbol: "XRXx",
+                logo: "https://xstocks-metadata.backed.fi/logos/tokens/XRXx.png",
                 isTradingHalted: false,
                 underlying: { symbol: "XRX", type: "Equity" },
                 deployments: [{ address: mint, network: "Solana" }],
@@ -184,6 +185,7 @@ describe("stock provider boundaries", () => {
     expect(data).toHaveLength(1);
     expect(data[0]?.mint).toBe(mint);
     expect(data[0]?.dexPriceUsd).toBe("3.4");
+    expect(data[0]?.logoUrl).toBe("https://xstocks-metadata.backed.fi/logos/tokens/XRXx.png");
     expect(fetcher.mock.calls.some(([url]) => String(url).includes("price-data"))).toBe(false);
   });
 

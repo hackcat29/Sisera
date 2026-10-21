@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { perpLogos, spotLogos } from "../../lib/asset-logo";
 import { pct, platform, usd } from "../../lib/platform";
 import { useSolanaSigner } from "../../lib/use-solana-signer";
+import { TokenAvatar } from "../token-avatar";
 import { Loading, Note, Panel, Stat } from "./ui";
 
 type Exposure = { key: string; valueUsd: number; weightPct: number };
@@ -25,7 +27,19 @@ type Position = {
   underlying: string;
   sector: string;
   exitLiquidityPct: number | null;
+  imageUrl?: string | null;
 };
+/** A position's logo: the catalog's for Solana assets, Hyperliquid's icon for its markets. */
+function positionLogos(position: Position) {
+  if (position.instrumentKey.startsWith("hyperliquid-spot:")) {
+    const symbol = position.symbol.replace(/\/USDC$/, "");
+    return spotLogos({ token: symbol, symbol });
+  }
+  if (position.instrumentKey.startsWith("hyperliquid:"))
+    return perpLogos(position.symbol.replace(/-PERP$/, ""));
+  return position.imageUrl;
+}
+
 export type PortfolioView = {
   mode: "paper" | "live";
   summary: {
@@ -276,10 +290,20 @@ export function UnifiedPortfolio() {
                   {view.positions.map((position) => (
                     <tr key={position.key} className="border-b border-line/50 last:border-0">
                       <td className="px-4 py-2.5">
-                        <p className="font-sans font-semibold text-bone">{position.symbol}</p>
-                        <p className="font-sans text-[10px] text-slate-500">
-                          {LABELS[position.assetClass] ?? position.assetClass} · {position.sector}
-                        </p>
+                        <div className="flex items-center gap-2.5">
+                          <TokenAvatar
+                            src={positionLogos(position)}
+                            symbol={position.symbol}
+                            size={24}
+                          />
+                          <div>
+                            <p className="font-sans font-semibold text-bone">{position.symbol}</p>
+                            <p className="font-sans text-[10px] text-slate-500">
+                              {LABELS[position.assetClass] ?? position.assetClass} ·{" "}
+                              {position.sector}
+                            </p>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 text-[11px] text-slate-400">
                         {position.book.startsWith("agent:") ? (

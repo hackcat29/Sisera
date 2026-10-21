@@ -6,7 +6,9 @@ import { auth } from "../../../auth";
 import { EmptyState } from "../../../components/empty-state";
 import { PageHeader } from "../../../components/page-header";
 import { PredictionPaperAccount } from "../../../components/prediction-paper-account";
+import { TokenAvatar } from "../../../components/token-avatar";
 import { accountErrorMessage, getPredictionMarkets } from "../../../lib/api";
+import { predictionLogos } from "../../../lib/asset-logo";
 
 export const metadata: Metadata = {
   title: "Predictions",
@@ -175,22 +177,38 @@ export default async function PredictionsPage({
                           <Link
                             prefetch={false}
                             href={`/predictions/${encodeURIComponent(market.id)}`}
-                            className="block"
+                            className="flex items-center gap-3"
                           >
-                            <span className="line-clamp-1 font-medium text-bone">
-                              {market.title}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              <span className="capitalize">
-                                {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+                            {predictionLogos(market) ? (
+                              <TokenAvatar
+                                src={predictionLogos(market)}
+                                symbol={market.category ?? market.title}
+                                size={30}
+                                className="rounded-md"
+                              />
+                            ) : (
+                              <span className="grid size-[30px] shrink-0 place-items-center rounded-md bg-ink text-slate-500">
+                                <Target size={14} />
                               </span>
-                              {market.quality.source === "panta-onchain"
-                                ? market.quality.status === "stale"
-                                  ? " · Prices may be delayed"
-                                  : " · Indicative prices"
-                                : market.pricingAvailable === false
-                                  ? " · New market, priced when you open it"
-                                  : " · View evidence"}
+                            )}
+                            <span className="min-w-0">
+                              <span className="line-clamp-1 font-medium text-bone">
+                                {market.title}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                <span className="capitalize">
+                                  {[market.category, market.subcategory]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </span>
+                                {market.quality.source === "panta-onchain"
+                                  ? market.quality.status === "stale"
+                                    ? " · Prices may be delayed"
+                                    : " · Indicative prices"
+                                  : market.pricingAvailable === false
+                                    ? " · New market, priced when you open it"
+                                    : " · View evidence"}
+                              </span>
                             </span>
                           </Link>
                         </td>

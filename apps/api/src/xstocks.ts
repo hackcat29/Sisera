@@ -5,6 +5,7 @@ const Asset = z.object({
   name: z.string(),
   symbol: z.string(),
   description: z.string().nullable().optional(),
+  logo: z.string().url().nullable().optional(),
   isTradingHalted: z.boolean(),
   underlying: z.object({ symbol: z.string(), type: z.string().nullable() }).nullable(),
   deployments: z.array(z.object({ address: z.string(), network: z.string() })),
@@ -33,6 +34,8 @@ export type PublicStock = {
   volume24hUsd: number | null;
   liquidityUsd: number | null;
   chartUrl: string | null;
+  /** The company logo published by the issuer. */
+  logoUrl: string | null;
   tradingHalted: boolean;
   fetchedAt: string;
   source: "xstocks";
@@ -172,6 +175,7 @@ export class XStocksClient {
           volume24hUsd: pair?.volume?.h24 ?? prior?.volume24hUsd ?? null,
           liquidityUsd: pair?.liquidity?.usd ?? prior?.liquidityUsd ?? null,
           chartUrl: pair?.url ?? prior?.chartUrl ?? null,
+          logoUrl: asset.logo?.startsWith("https://") ? asset.logo : null,
           tradingHalted: asset.isTradingHalted,
           fetchedAt: pair ? fetchedAt : (prior?.fetchedAt ?? fetchedAt),
           source: "xstocks",

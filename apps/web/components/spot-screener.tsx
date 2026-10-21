@@ -4,10 +4,12 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { spotLogos } from "../lib/asset-logo";
 import { type SpotMarket, spotMarkets } from "../lib/hyperliquid";
 import { usePerpMid } from "../lib/market-streams";
 import { formatSignedPct, signTone } from "../lib/sign";
 import { LiveNumber } from "./live-number";
+import { TokenAvatar } from "./token-avatar";
 
 type SortKey = "volume" | "gainers" | "losers" | "name";
 /** Pairs below this daily volume are hidden unless searched for; most are inactive. */
@@ -36,12 +38,20 @@ function Row({ market }: { market: SpotMarket }) {
       className="cursor-pointer border-b border-line/60 last:border-0 hover:bg-white/[.03]"
     >
       <td className="px-5 py-2.5">
-        <Link prefetch={false} href={href} onClick={(event) => event.stopPropagation()}>
-          <span className="font-semibold text-bone">{market.symbol}</span>
-          <span className="text-slate-400"> / USDC</span>
-          {market.name !== market.symbol && (
-            <span className="ml-2 text-[11px] text-slate-500">{market.name}</span>
-          )}
+        <Link
+          prefetch={false}
+          href={href}
+          className="flex items-center gap-3"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <TokenAvatar src={spotLogos(market)} symbol={market.symbol} size={24} />
+          <span>
+            <span className="font-semibold text-bone">{market.symbol}</span>
+            <span className="text-slate-400"> / USDC</span>
+            {market.name !== market.symbol && (
+              <span className="ml-2 text-[11px] text-slate-500">{market.name}</span>
+            )}
+          </span>
         </Link>
       </td>
       <td className="px-5 py-2.5 text-right text-bone">

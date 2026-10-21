@@ -9,6 +9,7 @@ import { useLivePrices } from "../lib/live-prices";
 import { formatSignedPct, signTone } from "../lib/sign";
 import { LiveNumber } from "./live-number";
 import { usSession } from "./market-session";
+import { TokenAvatar } from "./token-avatar";
 
 type SortKey = "name" | "price" | "change" | "volume" | "liquidity" | "premium";
 const PAGE = 100;
@@ -163,14 +164,21 @@ export function PublicStockScreener({ stocks }: { stocks: PublicStock[] }) {
                       <Link
                         prefetch={false}
                         href={href}
-                        className="block"
+                        className="flex items-center gap-3"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <span className="font-semibold text-bone">
-                          {stock.name.replace(/ xStock$/, "")}
-                        </span>
-                        <span className="ml-2 font-mono text-[11px] text-slate-400">
-                          {stock.symbol}
+                        <TokenAvatar
+                          src={stock.logoUrl}
+                          symbol={stock.underlyingSymbol}
+                          size={26}
+                        />
+                        <span>
+                          <span className="font-semibold text-bone">
+                            {stock.name.replace(/ xStock$/, "")}
+                          </span>
+                          <span className="ml-2 font-mono text-[11px] text-slate-400">
+                            {stock.symbol}
+                          </span>
                         </span>
                       </Link>
                     </td>

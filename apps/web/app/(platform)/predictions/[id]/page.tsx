@@ -6,8 +6,10 @@ import { PredictionResearchPanel } from "../../../../components/prediction-resea
 import { PredictionTradeTicket } from "../../../../components/prediction-trade-ticket";
 import { ProbabilityChart } from "../../../../components/probability-chart";
 import { SignInToTrade } from "../../../../components/sign-in-to-trade";
+import { TokenAvatar } from "../../../../components/token-avatar";
 import { TradingChart } from "../../../../components/trading-chart";
 import { getPredictionMarket, getPredictionResearch } from "../../../../lib/api";
+import { predictionLogos } from "../../../../lib/asset-logo";
 import { signTone } from "../../../../lib/sign";
 
 export const dynamic = "force-dynamic";
@@ -100,7 +102,17 @@ export default async function PredictionMarketPage({
             </Link>{" "}
             · Powered by Panta · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
           </p>
-          <h1 className="display mt-2 text-[28px] leading-tight text-bone">{market.title}</h1>
+          <h1 className="display mt-2 flex items-center gap-3 text-[28px] leading-tight text-bone">
+            {predictionLogos(market) && (
+              <TokenAvatar
+                src={predictionLogos(market)}
+                symbol={market.category ?? market.title}
+                size={44}
+                className="rounded-lg"
+              />
+            )}
+            <span>{market.title}</span>
+          </h1>
           {market.closesAt && (
             <p className="mt-2 text-[13px] text-slate-400">
               Closes {new Date(market.closesAt).toUTCString()}
