@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type JupiterFetch, jupiterFetch } from "./jupiter-api.js";
 
 const Quote = z
   .object({
@@ -50,6 +51,53 @@ export class JupiterOrderError extends Error {
   }
 }
 
+/** Jupiter answered with an HTTP error, or did not answer in time. */
+export class JupiterRequestError extends Error {
+  constructor(
+    message: string,
+    /** The HTTP status, or null when the request failed or timed out. */
+    readonly status: number | null,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * What to tell the user when Jupiter cannot quote a swap. Only a quote Jupiter actually refused
+ * means there is no route; rate limits, outages and timeouts are temporary.
+ */
+export function swapFailure(error: unknown) {
+  const status = error instanceof JupiterRequestError ? error.status : null;
+  if (status === 400 || status === 404 || status === 422)
+    return {
+      noRoute: true,
+      message: "No swap route with enough liquidity was found for this token.",
+    } as const;
+  return {
+    noRoute: false,
+    message:
+      status === 429
+        ? "Swaps are busy right now. Try again in a few seconds."
+        : "Swaps are temporarily unavailable. Try again shortly.",
+  } as const;
+}
+
+/** Sends a Jupiter request, turning HTTP errors, timeouts and network failures into one error. */
+async function request(send: () => Promise<Response>, what: string) {
+  let response: Response;
+  try {
+    response = await send();
+  } catch (error) {
+    throw new JupiterRequestError(
+      `Jupiter ${what} failed: ${error instanceof Error ? error.message : String(error)}`,
+      null,
+    );
+  }
+  if (!response.ok)
+    throw new JupiterRequestError(`Jupiter ${what} returned ${response.status}`, response.status);
+  return response;
+}
+
 /** Price impact as a positive decimal fraction (0.01 = 1%), or null when Jupiter omits it. */
 export function priceImpactFraction(quote: Pick<Quote, "priceImpact" | "priceImpactPct">) {
   if (quote.priceImpact != null && Number.isFinite(quote.priceImpact))
@@ -59,16 +107,18 @@ export function priceImpactFraction(quote: Pick<Quote, "priceImpact" | "priceImp
 }
 
 export class JupiterQuoteClient {
-  constructor(private readonly apiKey: string) {}
+  private readonly jupiter: JupiterFetch;
+
+  constructor(apiKey?: string) {
+    this.jupiter = jupiterFetch(apiKey);
+  }
 
   async preview(inputMint: string, outputMint: string, amount: string) {
-    const url = new URL("https://api.jup.ag/swap/v2/order");
-    url.search = new URLSearchParams({ inputMint, outputMint, amount }).toString();
-    const response = await fetch(url, {
-      headers: { "x-api-key": this.apiKey },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) throw new Error(`Jupiter quote returned ${response.status}`);
+    const search = new URLSearchParams({ inputMint, outputMint, amount });
+    const response = await request(
+      () => this.jupiter(`/swap/v2/order?${search}`, { signal: AbortSignal.timeout(10000) }),
+      "quote",
+    );
     const quote = Quote.parse(await response.json());
     if (quote.transaction != null)
       throw new Error("Jupiter returned a transaction for a quote-only request");
@@ -99,7 +149,6 @@ export class JupiterQuoteClient {
     /** Sisera's platform fee, collected by Jupiter into the referral account's token accounts. */
     referral?: { account: string; feeBps: number },
   ) {
-    const url = new URL("https://api.jup.ag/swap/v2/order");
     const search = new URLSearchParams({ inputMint, outputMint, amount, taker });
     if (slippageBps != null)
       search.set("slippageBps", String(Math.max(1, Math.min(500, Math.round(slippageBps)))));
@@ -107,12 +156,10 @@ export class JupiterQuoteClient {
       search.set("referralAccount", referral.account);
       search.set("referralFee", String(Math.round(referral.feeBps)));
     }
-    url.search = search.toString();
-    const response = await fetch(url, {
-      headers: { "x-api-key": this.apiKey },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!response.ok) throw new Error(`Jupiter order returned ${response.status}`);
+    const response = await request(
+      () => this.jupiter(`/swap/v2/order?${search}`, { signal: AbortSignal.timeout(12000) }),
+      "order",
+    );
     const order = Quote.parse(await response.json());
     if (!order.transaction)
       throw new JupiterOrderError(
@@ -129,9 +176,9 @@ export class JupiterQuoteClient {
   }
 
   async execute(signedTransaction: string, requestId: string) {
-    const response = await fetch("https://api.jup.ag/swap/v2/execute", {
+    const response = await this.jupiter("/swap/v2/execute", {
       method: "POST",
-      headers: { "x-api-key": this.apiKey, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ signedTransaction, requestId }),
       signal: AbortSignal.timeout(45000),
     });

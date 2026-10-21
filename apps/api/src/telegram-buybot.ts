@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import type { HeliusClient } from "./helius.js";
+import { type JupiterFetch, jupiterFetch } from "./jupiter-api.js";
 
 export const SISERA_MINT = "4eTknJyuvzcFNS9swypDsfYnhBFJ4d7VqZTqK21RYUh5";
 export const SISERA_PRIMARY_POOL = "6fPLnuqvzkpRD866RjCjeFWBxRMbnhKdoMjPjTcxdqHE";
@@ -518,6 +519,7 @@ export class SiseraTelegramBuyBot {
   private readonly minSendIntervalMs: number;
   private readonly commandCooldownMs: number;
   private readonly fetcher: typeof fetch;
+  private readonly jupiter: JupiterFetch;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly knownPools = new Set<string>([SISERA_PRIMARY_POOL]);
   private readonly seenSignatures = new Set<string>();
@@ -544,6 +546,7 @@ export class SiseraTelegramBuyBot {
     this.minSendIntervalMs = options.minSendIntervalMs ?? 3_100;
     this.commandCooldownMs = options.commandCooldownMs ?? 30_000;
     this.fetcher = options.fetcher ?? globalThis.fetch;
+    this.jupiter = jupiterFetch(options.jupiterApiKey, this.fetcher);
     this.sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   }
 
@@ -626,11 +629,7 @@ export class SiseraTelegramBuyBot {
       return this.cachedSolPrice.usd;
     }
     try {
-      const base = this.options.jupiterApiKey
-        ? "https://api.jup.ag/price/v3"
-        : "https://lite-api.jup.ag/price/v3";
-      const response = await this.fetcher(`${base}?ids=${WSOL_MINT}`, {
-        headers: this.options.jupiterApiKey ? { "x-api-key": this.options.jupiterApiKey } : {},
+      const response = await this.jupiter(`/price/v3?ids=${WSOL_MINT}`, {
         signal: AbortSignal.timeout(4_000),
       });
       if (!response.ok) throw new Error(`Jupiter price returned ${response.status}`);

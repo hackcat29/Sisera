@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type JupiterFetch, jupiterFetch } from "./jupiter-api.js";
 
 const JupiterPrice = z.record(
   z.string(),
@@ -35,13 +36,16 @@ export class LivePriceHub {
   private lastDemand = 0;
   private timer: NodeJS.Timeout | null = null;
   private inFlight = false;
+  private readonly jupiter: JupiterFetch;
 
   constructor(
     private readonly loadUniverse: () => Promise<{ priority: string[]; tail: string[] }>,
-    private readonly apiKey?: string,
-    private readonly fetcher: typeof fetch = globalThis.fetch,
+    apiKey?: string,
+    fetcher: typeof fetch = globalThis.fetch,
     private readonly batchesPerTick = 3,
-  ) {}
+  ) {
+    this.jupiter = jupiterFetch(apiKey, fetcher);
+  }
 
   /** Returns the latest prices for the requested mints, or every tracked mint. */
   snapshot(mints?: string[]) {
@@ -110,9 +114,7 @@ export class LivePriceHub {
   }
 
   private async fetchBatch(mints: string[]) {
-    const base = this.apiKey ? "https://api.jup.ag/price/v3" : "https://lite-api.jup.ag/price/v3";
-    const response = await this.fetcher(`${base}?ids=${mints.join(",")}`, {
-      headers: this.apiKey ? { "x-api-key": this.apiKey } : {},
+    const response = await this.jupiter(`/price/v3?ids=${mints.join(",")}`, {
       signal: AbortSignal.timeout(2500),
     });
     if (!response.ok) return;

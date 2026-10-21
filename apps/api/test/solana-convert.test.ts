@@ -1,7 +1,7 @@
 import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeliusClient } from "../src/helius.js";
-import { JupiterOrderError, JupiterQuoteClient } from "../src/jupiter.js";
+import { JupiterOrderError, JupiterQuoteClient, JupiterRequestError } from "../src/jupiter.js";
 import {
   CONVERT_BOOK,
   NATIVE_SOL_MINT,
@@ -183,10 +183,18 @@ describe("Solana swap into USDC", () => {
     await expect(
       service({
         order: async () => {
-          throw new Error("Jupiter order returned 400");
+          throw new JupiterRequestError("Jupiter order returned 400", 400);
         },
       }).convert.prepare(request),
     ).rejects.toThrow(/No swap route/);
+    // A rate limit or outage is temporary and must not be reported as missing liquidity.
+    await expect(
+      service({
+        order: async () => {
+          throw new JupiterRequestError("Jupiter order returned 429", 429);
+        },
+      }).convert.prepare(request),
+    ).rejects.toThrow(/busy right now/);
   });
 
   it("rejects quotes that change the request, move the price, or exceed the swap cap", async () => {
