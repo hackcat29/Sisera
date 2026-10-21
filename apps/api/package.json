@@ -28,6 +28,7 @@
     "@sisera/portfolio": "workspace:*",
     "@sisera/quant": "workspace:*",
     "@sisera/risk": "workspace:*",
+    "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "^1.98.0",
     "bn.js": "^5.2.5",
     "decimal.js": "^10.6.0",

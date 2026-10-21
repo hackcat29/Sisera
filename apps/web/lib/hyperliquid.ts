@@ -134,10 +134,13 @@ export async function cancelOrder(account: string, asset: number, orderId: numbe
   await exchange.cancel({ cancels: [{ a: asset, o: orderId }] });
 }
 
-/** Withdraws USDC from Hyperliquid to the account's own address on Arbitrum. */
-export async function withdraw(wallet: ConnectedWallet, amountUsd: string) {
+/** Withdraws USDC from Hyperliquid to Arbitrum: the account's own address unless one is given. */
+export async function withdraw(wallet: ConnectedWallet, amountUsd: string, destination?: Address) {
   const exchange = new ExchangeClient({ wallet: await ownerWallet(wallet), transport });
-  await exchange.withdraw3({ destination: wallet.address as Address, amount: amountUsd });
+  await exchange.withdraw3({
+    destination: destination ?? (wallet.address as Address),
+    amount: amountUsd,
+  });
 }
 
 export type PerpPosition = {
