@@ -13,6 +13,7 @@ import { PortfolioPrivyWallet } from "../../../../components/portfolio-privy-wal
 import { PredictionPaperAccount } from "../../../../components/prediction-paper-account";
 import { SwapToUsdc } from "../../../../components/swap-to-usdc";
 import { TokenAvatar } from "../../../../components/token-avatar";
+import { WithdrawButton } from "../../../../components/withdraw-funds";
 import {
   accountErrorMessage,
   getPublicPerpAccount,
@@ -93,7 +94,12 @@ export default async function PortfolioPage({
         eyebrow="Your assets"
         title="Portfolio"
         description="Your Solana wallet, Hyperliquid account and trading book, reconciled against your wallets."
-        actions={<FundAccountButton />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <FundAccountButton />
+            <WithdrawButton />
+          </div>
+        }
       />
 
       {signedIn && loaded && total < 1 && (

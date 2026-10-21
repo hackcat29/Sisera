@@ -38,6 +38,7 @@ import { MarketSession } from "./market-session";
 import { OperatorProfile } from "./operator-profile";
 import { PortfolioConnect } from "./portfolio-connect";
 import { SiseraMark } from "./sisera-mark";
+import { WithdrawButton } from "./withdraw-funds";
 
 export { SiseraMark } from "./sisera-mark";
 
@@ -390,6 +391,7 @@ export function OperatorShell({
             {signedIn ? (
               <>
                 <FundAccountButton compact className="hidden sm:inline-flex" />
+                <WithdrawButton compact className="hidden lg:inline-flex" />
                 <PortfolioConnect compact />
                 <OperatorProfile operator={operator} localMode={localMode} />
               </>
