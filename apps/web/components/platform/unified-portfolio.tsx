@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { perpLogos, spotLogos } from "../../lib/asset-logo";
 import { pct, platform, usd } from "../../lib/platform";
 import { useSolanaSigner } from "../../lib/use-solana-signer";
+import { type PnlCardInput, PnlShareButton } from "../pnl-share";
 import { TokenAvatar } from "../token-avatar";
 import { Loading, Note, Panel, Stat } from "./ui";
 
@@ -28,7 +29,34 @@ type Position = {
   sector: string;
   exitLiquidityPct: number | null;
   imageUrl?: string | null;
+  /** Prediction positions: the market's question and the outcome held. */
+  title?: string | null;
+  marketId?: string | null;
+  outcome?: "yes" | "no";
 };
+/**
+ * A shareable PnL card for a live prediction position, from its average price and the market's
+ * current price. Null when the market has no current price.
+ */
+function predictionCard(position: Position): PnlCardInput | null {
+  if (position.assetClass !== "prediction" || !position.outcome) return null;
+  const entry = Number(position.averageCostUsd);
+  const mark = Number(position.markPriceUsd);
+  if (!(entry > 0) || !(mark >= 0) || position.markPriceUsd == null) return null;
+  return {
+    coin: "Prediction",
+    market: "prediction",
+    title: position.title ?? position.symbol,
+    outcome: position.outcome,
+    side: "long",
+    leverage: 1,
+    roePct: (mark / entry - 1) * 100,
+    pnlUsd: Number(position.unrealizedPnlUsd ?? (mark - entry) * Number(position.quantity)),
+    entryPx: entry,
+    markPx: mark,
+  };
+}
+
 /** A position's logo: the catalog's for Solana assets, Hyperliquid's icon for its markets. */
 function positionLogos(position: Position) {
   if (position.instrumentKey.startsWith("hyperliquid-spot:")) {
@@ -296,11 +324,28 @@ export function UnifiedPortfolio() {
                             symbol={position.symbol}
                             size={24}
                           />
-                          <div>
-                            <p className="font-sans font-semibold text-bone">{position.symbol}</p>
-                            <p className="font-sans text-[10px] text-slate-500">
-                              {LABELS[position.assetClass] ?? position.assetClass} ·{" "}
-                              {position.sector}
+                          <div className="min-w-0">
+                            {position.title && position.marketId ? (
+                              <Link
+                                prefetch={false}
+                                href={`/predictions/${encodeURIComponent(position.marketId)}`}
+                                className="line-clamp-2 max-w-72 font-sans font-semibold text-bone hover:text-bronze-200"
+                              >
+                                {position.title}
+                              </Link>
+                            ) : (
+                              <p className="font-sans font-semibold text-bone">{position.symbol}</p>
+                            )}
+                            <p className="flex items-center gap-2 font-sans text-[10px] text-slate-500">
+                              <span>
+                                {LABELS[position.assetClass] ?? position.assetClass} ·{" "}
+                                {position.outcome
+                                  ? position.outcome.toUpperCase()
+                                  : position.sector}
+                              </span>
+                              {view.mode === "live" && predictionCard(position) && (
+                                <PnlShareButton card={predictionCard(position) as PnlCardInput} />
+                              )}
                             </p>
                           </div>
                         </div>

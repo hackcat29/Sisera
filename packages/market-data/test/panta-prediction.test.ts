@@ -12,6 +12,49 @@ const registryOnly =
       : Promise.resolve(Response.json({ result: [] }));
 
 describe("PantaPredictionProvider", () => {
+  it("shows each market's cover picture from Panta's event list, and lists markets without it", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-12T09:00:00Z"));
+    const registered = "CLQqZ7r6WYC5xNumWrmC7UAkQ1Z6pdCbjJSy7wQu1DgL";
+    const picture =
+      "https://res.cloudinary.com/dyvupboym/image/upload/v1/balr-market/events/btc.png";
+    let picturesUp = true;
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "https://rpc.test") return Response.json({ error: { code: -32000 } });
+      if (url === "https://events.test") {
+        if (!picturesUp) return new Response("down", { status: 503 });
+        return Response.json({
+          success: true,
+          data: [{ eventPda: registered, images: [picture] }],
+        });
+      }
+      return Response.json({
+        items: [{ marketId: registered, title: "Registered USDC event", endTime: 1798815600 }],
+      });
+    });
+    const create = () =>
+      new PantaPredictionProvider(
+        "https://live-api.panta.market/api/v1",
+        "key",
+        fetcher,
+        "https://rpc.test",
+        undefined,
+        "https://events.test",
+      );
+    try {
+      const [market] = await create().listOpenMarkets(10);
+      // A small Cloudinary rendition, not the 1024px original.
+      expect(market?.imageUrl).toBe(
+        "https://res.cloudinary.com/dyvupboym/image/upload/c_fill,w_160,h_160,q_auto,f_auto/v1/balr-market/events/btc.png",
+      );
+      picturesUp = false;
+      const [plain] = await create().listOpenMarkets(10);
+      expect(plain?.id).toBe(registered);
+      expect(plain?.imageUrl ?? null).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("supplements the registry with active P2P accounts and keeps their detail consistent", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-12T09:00:00Z"));
     const registered = "CLQqZ7r6WYC5xNumWrmC7UAkQ1Z6pdCbjJSy7wQu1DgL";

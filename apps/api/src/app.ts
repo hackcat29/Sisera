@@ -921,6 +921,10 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             ? { price: Number(probability), observedAt: market.quality.observedAt }
             : null;
         },
+        predictionInfo: async (marketId) => {
+          const market = await predictions.getMarket?.(marketId);
+          return market ? { title: market.title, imageUrl: market.imageUrl ?? null } : null;
+        },
       })
     : null;
   const policyService =

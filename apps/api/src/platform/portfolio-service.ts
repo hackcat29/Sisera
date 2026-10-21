@@ -32,6 +32,8 @@ export type MarkSources = {
     marketId: string,
     outcome: "yes" | "no",
   ) => Promise<{ price: number; observedAt: string } | null>;
+  /** The question and picture of a prediction market, for showing a position by name. */
+  predictionInfo?: (marketId: string) => Promise<{ title: string; imageUrl: string | null } | null>;
 };
 
 const ASSET_CLASS_BY_KIND: Record<CatalogAsset["kind"], AssetClassKey> = {
@@ -342,6 +344,21 @@ export class PortfolioService {
     const catalogAssets = await this.catalog.list();
     const changes = new Map(catalogAssets.map((asset) => [asset.mint, asset.change24hPct]));
     const images = new Map(catalogAssets.map((asset) => [asset.mint, asset.imageUrl]));
+    // Prediction positions are keyed by market address; show them by their question instead.
+    const predictionIds = [
+      ...new Set(
+        valued
+          .filter((position) => position.instrumentKey.startsWith("prediction:"))
+          .map((position) => position.instrumentKey.split(":")[1] ?? ""),
+      ),
+    ].filter(Boolean);
+    const predictionInfo = new Map(
+      await Promise.all(
+        predictionIds.map(
+          async (id) => [id, await this.marks.predictionInfo?.(id).catch(() => null)] as const,
+        ),
+      ),
+    );
     const dailyPnlUsd = valued.reduce((sum, position) => {
       const change = changes.get(position.instrumentKey) ?? null;
       const value = Number(position.marketValueUsd ?? 0);
@@ -394,10 +411,23 @@ export class PortfolioService {
       mode,
       summary,
       // Logos for Solana assets come from the catalog; the app draws venue icons for the rest.
-      positions: valued.map((position) => ({
-        ...position,
-        imageUrl: images.get(position.instrumentKey) ?? null,
-      })),
+      positions: valued.map((position) => {
+        const [, marketId, outcome] = position.instrumentKey.split(":");
+        const prediction = position.instrumentKey.startsWith("prediction:")
+          ? predictionInfo.get(marketId ?? "")
+          : null;
+        return {
+          ...position,
+          imageUrl: prediction?.imageUrl ?? images.get(position.instrumentKey) ?? null,
+          ...(position.instrumentKey.startsWith("prediction:")
+            ? {
+                title: prediction?.title ?? null,
+                marketId: marketId ?? null,
+                outcome: outcome === "no" ? "no" : "yes",
+              }
+            : {}),
+        };
+      }),
       cash: cashBreakdown,
       mandate,
       mandateLimits,

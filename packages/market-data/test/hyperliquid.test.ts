@@ -181,6 +181,9 @@ describe("JupiterPredictionProvider", () => {
     expect(result[0]?.resolutionRules).toBe("Official result");
     expect(result[0]?.quality.status).toBe("delayed");
     expect(await provider.listOpenMarkets(1)).toHaveLength(1);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    // The catalog loads once; the other request fetches cover pictures.
+    expect(
+      fetcher.mock.calls.filter(([url]) => !String(url).includes("/api/v1/events")),
+    ).toHaveLength(1);
   });
 });
