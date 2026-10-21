@@ -22,6 +22,17 @@ const number = (value: string | null, fallback = 0) => {
 };
 const price = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: value >= 1000 ? 1 : value >= 1 ? 4 : 6 });
+/** Prediction shares trade between $0 and $1, so they read best in cents. */
+const cents = (value: number) =>
+  `${(value * 100).toLocaleString("en-US", { maximumFractionDigits: value * 100 < 10 ? 1 : 0 })}¢`;
+/** A prediction question, kept to two lines on the card. */
+const question = (value: string | null) => {
+  const text = Array.from(value ?? "", (character) => (character < " " ? " " : character))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text;
+};
 
 /**
  * A shareable PnL card for a position, styled after Sisera's Telegram stickers. All values come
@@ -30,8 +41,12 @@ const price = (value: number) =>
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const coin = (params.get("coin") ?? "BTC").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || "BTC";
-  const market = params.get("market") === "spot" ? "spot" : "perp";
+  const marketParam = params.get("market");
+  const market =
+    marketParam === "spot" ? "spot" : marketParam === "prediction" ? "prediction" : "perp";
   const side = params.get("side") === "short" ? "short" : "long";
+  const title = question(params.get("title")) || "Prediction market";
+  const outcome = params.get("outcome") === "no" ? "no" : "yes";
   const leverage = Math.min(100, Math.max(1, Math.round(number(params.get("lev"), 1))));
   const roe = Math.max(-100_000, Math.min(100_000, number(params.get("roe"))));
   const pnl = number(params.get("pnl"));
@@ -62,34 +77,62 @@ export async function GET(request: NextRequest) {
           <Mark size={40} />
           <span style={{ fontSize: 24, fontWeight: 600, letterSpacing: 8 }}>SISERA</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 44 }}>
-          <span style={{ fontSize: 34, fontWeight: 700 }}>
-            {coin}
-            {market === "perp" ? "-PERP" : "/USDC"}
-          </span>
-          <span
-            style={{
-              display: "flex",
-              fontSize: 20,
-              fontWeight: 700,
-              color: c.inkDeep,
-              background: side === "long" ? GREEN : RED,
-              borderRadius: 8,
-              padding: "6px 14px",
-            }}
-          >
-            {side === "long" ? "LONG" : "SHORT"}
-            {market === "perp" ? ` ${leverage}x` : ""}
-          </span>
-        </div>
+        {market === "prediction" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 34 }}>
+            <span style={{ display: "flex", fontSize: 26, fontWeight: 600, lineHeight: 1.25 }}>
+              {title}
+            </span>
+            <span
+              style={{
+                display: "flex",
+                alignSelf: "flex-start",
+                fontSize: 20,
+                fontWeight: 700,
+                color: c.inkDeep,
+                background: outcome === "yes" ? GREEN : RED,
+                borderRadius: 8,
+                padding: "6px 14px",
+              }}
+            >
+              {outcome === "yes" ? "YES" : "NO"}
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 44 }}>
+            <span style={{ fontSize: 34, fontWeight: 700 }}>
+              {coin}
+              {market === "perp" ? "-PERP" : "/USDC"}
+            </span>
+            <span
+              style={{
+                display: "flex",
+                fontSize: 20,
+                fontWeight: 700,
+                color: c.inkDeep,
+                background: side === "long" ? GREEN : RED,
+                borderRadius: 8,
+                padding: "6px 14px",
+              }}
+            >
+              {side === "long" ? "LONG" : "SHORT"}
+              {market === "perp" ? ` ${leverage}x` : ""}
+            </span>
+          </div>
+        )}
         <span
-          style={{ fontSize: 26, fontWeight: 700, color: accent, marginTop: 30, letterSpacing: 4 }}
+          style={{
+            fontSize: 26,
+            fontWeight: 700,
+            color: accent,
+            marginTop: market === "prediction" ? 18 : 30,
+            letterSpacing: 4,
+          }}
         >
           {headline}
         </span>
         <span
           style={{
-            fontSize: 132,
+            fontSize: market === "prediction" ? 92 : 132,
             fontWeight: 700,
             lineHeight: 1,
             color: accent,
@@ -110,13 +153,19 @@ export async function GET(request: NextRequest) {
           </span>
         )}
         <div style={{ display: "flex", gap: 48, marginTop: "auto", fontFamily: "Commit Mono" }}>
-          {[
-            ["ENTRY", entry],
-            ["MARK", mark],
-          ].map(([label, value]) => (
-            <div key={String(label)} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {(market === "prediction"
+            ? [
+                ["BOUGHT AT", cents(entry)],
+                ["NOW", cents(mark)],
+              ]
+            : [
+                ["ENTRY", `$${price(entry)}`],
+                ["MARK", `$${price(mark)}`],
+              ]
+          ).map(([label, value]) => (
+            <div key={label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 16, color: c.muted, letterSpacing: 3 }}>{label}</span>
-              <span style={{ fontSize: 28, color: c.bone }}>${price(Number(value))}</span>
+              <span style={{ fontSize: 28, color: c.bone }}>{value}</span>
             </div>
           ))}
         </div>
@@ -129,7 +178,9 @@ export async function GET(request: NextRequest) {
             letterSpacing: 2,
           }}
         >
-          sisera.xyz · Trade on Hyperliquid
+          {market === "prediction"
+            ? "sisera.xyz · Predictions on Panta"
+            : "sisera.xyz · Trade on Hyperliquid"}
         </span>
       </div>
       {/* biome-ignore lint/a11y/useAltText: decorative mascot in a generated image */}

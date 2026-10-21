@@ -768,10 +768,22 @@ const PANTA_EVENT_DISCRIMINATOR_BASE64 = Buffer.from(PANTA_EVENT_DISCRIMINATOR).
  * also contains legacy P2P markets omitted by the registry. On-chain state is
  * also the fallback when the API is unavailable or no API key is configured.
  */
+/**
+ * Panta's pictures are 1024px originals on Cloudinary; ask it for a small square, which is all a
+ * market thumbnail needs. Other hosts are left as they are.
+ */
+function thumbnail(url: string) {
+  return url.replace(
+    /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(?!c_)/,
+    "$1c_fill,w_160,h_160,q_auto,f_auto/",
+  );
+}
+
 export class PantaPredictionProvider {
   private cache: { until: number; markets: PredictionMarket[] } | null = null;
   private pending: Promise<PredictionMarket[]> | null = null;
   private registryIds = new Set<string>();
+  private pictures: { until: number; byEvent: Map<string, string> } | null = null;
 
   constructor(
     private readonly baseUrl = "https://live-api.panta.market/api/v1",
@@ -779,7 +791,48 @@ export class PantaPredictionProvider {
     private readonly fetcher: Fetch = globalThis.fetch,
     private readonly rpcUrl = "https://mainnet.helius-rpc.com/?api-key=9d40fe27-02d9-4756-91b7-6b639d75de67",
     private readonly programId = "6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp",
+    /** Panta's public event list, which carries the cover picture its site shows per market. */
+    private readonly eventsUrl = "https://production-api.balr.fun/api/v1/events",
   ) {}
+
+  /**
+   * Each market's cover picture, by event address. Neither the registry nor the on-chain account
+   * includes it, so it comes from the list panta.market itself renders. A failure keeps the last
+   * known pictures; markets without one simply show none.
+   */
+  private async eventPictures(): Promise<Map<string, string>> {
+    if (this.pictures && this.pictures.until > Date.now()) return this.pictures.byEvent;
+    try {
+      const response = await this.fetcher(this.eventsUrl, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error(`Panta events returned ${response.status}`);
+      const payload = (await response.json()) as { data?: unknown };
+      const byEvent = new Map<string, string>();
+      for (const event of Array.isArray(payload?.data) ? payload.data : []) {
+        const row = event as Record<string, unknown>;
+        const picture = Array.isArray(row.images)
+          ? row.images.find(
+              (url): url is string => typeof url === "string" && url.startsWith("https://"),
+            )
+          : undefined;
+        if (typeof row.eventPda === "string" && picture)
+          byEvent.set(row.eventPda, thumbnail(picture));
+      }
+      this.pictures = { until: Date.now() + 10 * 60_000, byEvent };
+      return byEvent;
+    } catch {
+      return this.pictures?.byEvent ?? new Map();
+    }
+  }
+
+  private withPicture(market: PredictionMarket, pictures: Map<string, string>): PredictionMarket {
+    if (market.imageUrl) return market;
+    const picture =
+      pictures.get(market.id) ?? (market.eventId ? pictures.get(market.eventId) : null);
+    return picture ? { ...market, imageUrl: picture } : market;
+  }
 
   async listOpenMarkets(limit = 20): Promise<PredictionMarket[]> {
     const markets = await this.loadAll();
@@ -793,6 +846,11 @@ export class PantaPredictionProvider {
   }
 
   async getMarket(id: string): Promise<PredictionMarket | null> {
+    const market = await this.findMarket(id);
+    return market ? this.withPicture(market, await this.eventPictures()) : null;
+  }
+
+  private async findMarket(id: string): Promise<PredictionMarket | null> {
     const markets = await this.loadAll();
     const found = markets.find((market) => market.id === id);
     // Legacy P2P accounts are absent from the USDC registry. The detail endpoint
@@ -872,9 +930,16 @@ export class PantaPredictionProvider {
 
   private async loadAll(): Promise<PredictionMarket[]> {
     const refresh = () => {
-      this.pending ??= this.loadMarkets().finally(() => {
-        this.pending = null;
-      });
+      this.pending ??= this.loadMarkets()
+        .then(async (markets) => {
+          const pictures = await this.eventPictures();
+          const pictured = markets.map((market) => this.withPicture(market, pictures));
+          if (this.cache) this.cache = { ...this.cache, markets: pictured };
+          return pictured;
+        })
+        .finally(() => {
+          this.pending = null;
+        });
       return this.pending;
     };
     if (this.cache) {

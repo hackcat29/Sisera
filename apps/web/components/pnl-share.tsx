@@ -7,7 +7,11 @@ import { toast } from "sonner";
 
 export type PnlCardInput = {
   coin: string;
-  market: "perp" | "spot";
+  market: "perp" | "spot" | "prediction";
+  /** The question, for a prediction position. */
+  title?: string;
+  /** The outcome held, for a prediction position. */
+  outcome?: "yes" | "no";
   side: "long" | "short";
   leverage: number;
   /** Return on margin, in percent. */
@@ -34,6 +38,9 @@ export function PnlShareButton({
       pnl: card.pnlUsd.toFixed(2),
       entry: String(card.entryPx),
       mark: String(card.markPx),
+      ...(card.market === "prediction"
+        ? { title: card.title ?? "", outcome: card.outcome ?? "yes" }
+        : {}),
       ...(hideAmount ? { hide: "1" } : {}),
     });
     return `/api/pnl-card?${params}`;
@@ -52,7 +59,10 @@ export function PnlShareButton({
   }
 
   async function share() {
-    const text = `${roeText} on my ${card.coin} ${card.side}${card.market === "perp" ? ` (${card.leverage}x)` : ""} with Sisera`;
+    const text =
+      card.market === "prediction"
+        ? `${roeText} on ${(card.outcome ?? "yes").toUpperCase()} in "${card.title ?? "a prediction market"}" with Sisera`
+        : `${roeText} on my ${card.coin} ${card.side}${card.market === "perp" ? ` (${card.leverage}x)` : ""} with Sisera`;
     try {
       const blob = await (await fetch(src)).blob();
       const file = new File([blob], fileName, { type: "image/png" });
