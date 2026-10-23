@@ -1,6 +1,7 @@
 "use client";
 
 import { PrivyProvider } from "@privy-io/react-auth";
+import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
 import type { ReactNode } from "react";
 import { arbitrum, base, bsc, hyperEvm, mainnet, optimism, polygon } from "viem/chains";
 
@@ -12,6 +13,21 @@ const DEFAULT_PRIVY_APP_ID = "cmuhawmmr00xa0bjwxxjqdocd";
 const SUPPORTED_EVM_CHAINS = [mainnet, base, arbitrum, optimism, polygon, bsc, hyperEvm].map(
   (chain) => ({ ...chain, testnet: false }),
 );
+
+/**
+ * Used by Privy's Solana signing screen to estimate fees and simulate transactions. Requests go
+ * through Sisera's same-origin proxy (app/api/solana-rpc) so the Helius key stays server-side.
+ */
+const SOLANA_RPC_URL = `${typeof window === "undefined" ? "http://localhost" : window.location.origin}/api/solana-rpc`;
+/** Subscriptions are only opened lazily; Sisera broadcasts and confirms transactions server-side. */
+const SOLANA_WS_URL = process.env.NEXT_PUBLIC_SOLANA_WS_URL || "wss://api.mainnet-beta.solana.com";
+const SOLANA_RPCS = {
+  "solana:mainnet": {
+    rpc: createSolanaRpc(SOLANA_RPC_URL),
+    rpcSubscriptions: createSolanaRpcSubscriptions(SOLANA_WS_URL),
+    blockExplorerUrl: "https://solscan.io",
+  },
+} as const;
 
 export function SiseraPrivyProvider({
   appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID || DEFAULT_PRIVY_APP_ID,
@@ -39,6 +55,7 @@ export function SiseraPrivyProvider({
             createOnLogin: "all-users",
           },
         },
+        solana: { rpcs: SOLANA_RPCS },
       }}
     >
       {children}
