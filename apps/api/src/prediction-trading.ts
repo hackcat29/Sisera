@@ -1,6 +1,6 @@
 import { PrivyClient } from "@privy-io/server-auth";
 import { claimPredictionOrder, finishPredictionOrder, savePredictionOrder } from "@sisera/db";
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, PublicKey, SendTransactionError, VersionedTransaction } from "@solana/web3.js";
 import type { ApiConfig } from "./config.js";
 import type { HeliusClient } from "./helius.js";
 import { PantaPredictionTradingClient } from "./panta-prediction.js";
@@ -135,10 +135,23 @@ export class PredictionTradingService {
           skipPreflight: false,
         });
       } catch (sendError) {
-        const rawMsg =
+        let rawMsg =
           sendError instanceof Error
             ? sendError.message
             : "Solana preflight transaction simulation failed";
+        if (sendError instanceof SendTransactionError) {
+          const logs = await sendError.getLogs(this.connection).catch(() => sendError.logs);
+          if (logs && logs.length > 0) {
+            console.error("[prediction-trading] transaction simulation logs:", logs);
+            const anchorError = logs.find(
+              (l) => l.includes("Error Message:") || l.includes("AnchorError"),
+            );
+            if (anchorError) {
+              const cleaned = anchorError.replace(/^Program log:\s*/, "").trim();
+              rawMsg = `${rawMsg} (${cleaned})`;
+            }
+          }
+        }
         console.error("[prediction-trading] sendRawTransaction failed:", rawMsg);
         await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "failed");
         if (/blockhash/i.test(rawMsg)) {
@@ -154,6 +167,13 @@ export class PredictionTradingService {
           );
         }
         throw new TradeRejection(`Solana transaction rejected: ${rawMsg}`, 422);
+      }
+
+      // Notify Panta indexer so Celery finalizes and attributes the trade immediately
+      if (order.orderPubkey) {
+        this.panta.submitOrder(String(order.orderPubkey), signature).catch((submitErr) => {
+          console.warn("[prediction-trading] submitOrder warning:", submitErr);
+        });
       }
 
       // If signature was produced, the order has been broadcast to Solana validators.

@@ -182,4 +182,125 @@ describe("PantaPredictionTradingClient", () => {
     const quoteNo = await client.quote("7y45RD53QHg7tfcbeZQt76NRPkhXK6CVN3e3K9d9oCS6", false);
     expect(quoteNo.priceUsd).toBe("0.499916");
   });
+
+  it("builds a versioned transaction using Panta primaryorderquote and primaryorderbuild endpoints", async () => {
+    const userWallet = Keypair.generate().publicKey.toBase58();
+    const marketId = "7y45RD53QHg7tfcbeZQt76NRPkhXK6CVN3e3K9d9oCS6";
+
+    const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes("/markets/")) {
+        return new Response(
+          JSON.stringify({
+            marketId,
+            status: "primary",
+            phase: "primary",
+            endTime: Math.floor(Date.now() / 1000) + 86400,
+            primaryYesPrice: "0.50",
+            primaryNoPrice: "0.50",
+          }),
+        );
+      }
+      if (url.includes("/primaryorderquote/")) {
+        const body = JSON.parse(String(options?.body));
+        expect(body.wallet).toBe(userWallet);
+        expect(body.marketId).toBe(marketId);
+        expect(body.side).toBe("yes");
+        return new Response(
+          JSON.stringify({
+            quoteId: "qt_test_12345",
+            marketId,
+            side: "yes",
+            amountUsdc: "10.00",
+            shares: "20.00",
+            avgPrice: "0.50",
+            feeUsdc: "0.20",
+          }),
+        );
+      }
+      if (url.includes("/primaryorderbuild/")) {
+        const body = JSON.parse(String(options?.body));
+        expect(body.quoteId).toBe("qt_test_12345");
+        expect(body.wallet).toBe(userWallet);
+        return new Response(
+          JSON.stringify({
+            orderId: "ord_test_67890",
+            quoteId: "qt_test_12345",
+            wallet: userWallet,
+            marketId,
+            instructions: [
+              {
+                programId: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+                data: Buffer.from("test-memo").toString("base64"),
+                accounts: [{ pubkey: userWallet, isSigner: true, isWritable: false }],
+              },
+            ],
+            derived: {
+              userPosition: "GesFPDQbpLo3zMLmivq4BUmGMtui7zeEEh9rgKpvpSqn",
+            },
+            recentBlockhash: "5EB3QCTUmVB1CigwcFYCkFDnCDqb7e6UPLbngH1RHn7R",
+          }),
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const client = new PantaPredictionTradingClient(
+      "https://live-api.panta.market/api/v1",
+      "test-panta-api-key",
+      fetcher as typeof fetch,
+    );
+
+    const prepared = await client.prepare({
+      marketId,
+      wallet: userWallet,
+      isYes: true,
+      depositAmount: "10000000",
+    });
+
+    expect(prepared.transaction).toBeDefined();
+    expect(prepared.order.orderPubkey).toBe("ord_test_67890");
+    expect(prepared.priceUsd).toBe(0.5);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("submits broadcast signature to Panta indexer via submitOrder", async () => {
+    const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes("/primaryordersubmit/")) {
+        const body = JSON.parse(String(options?.body));
+        expect(body.orderId).toBe("ord_test_67890");
+        expect(body.signature).toBe("sig_test_abc123");
+        return new Response(JSON.stringify({ success: true }));
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const client = new PantaPredictionTradingClient(
+      "https://live-api.panta.market/api/v1",
+      "test-panta-api-key",
+      fetcher as typeof fetch,
+    );
+
+    const ok = await client.submitOrder("ord_test_67890", "sig_test_abc123");
+    expect(ok).toBe(true);
+  });
+
+  it("checks order status via primaryorderverify", async () => {
+    const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes("/primaryorderverify/")) {
+        const body = JSON.parse(String(options?.body));
+        expect(body.orderId).toBe("ord_test_67890");
+        return new Response(JSON.stringify({ status: "confirmed" }));
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const client = new PantaPredictionTradingClient(
+      "https://live-api.panta.market/api/v1",
+      "test-panta-api-key",
+      fetcher as typeof fetch,
+    );
+
+    const status = await client.orderStatus("ord_test_67890");
+    expect(status).toBe("confirmed");
+  });
 });
