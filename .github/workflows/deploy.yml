@@ -80,7 +80,7 @@ jobs:
     name: Deploy to Contabo VPS (Native Node / systemd)
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Validate Deployment Secrets
         run: |
@@ -143,6 +143,7 @@ jobs:
           username: ${{ secrets.CONTABO_USER || secrets.VPS_USER || secrets.SSH_USER || 'root' }}
           key: ${{ secrets.CONTABO_SSH_KEY || secrets.VPS_SSH_KEY || secrets.SSH_KEY || secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.CONTABO_SSH_PORT || secrets.VPS_PORT || secrets.SSH_PORT || 22 }}
+          command_timeout: 20m
           script: |
             set -e
             APP_DIR="/opt/sisera"
