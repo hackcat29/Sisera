@@ -33,11 +33,13 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [txSignature, setTxSignature] = useState<string | null>(null);
   const paperRequestId = useRef<string | null>(null);
 
   async function submit() {
     setWorking(true);
     setMessage(null);
+    setTxSignature(null);
     try {
       if (!authenticated) throw new Error("Sign in to trade prediction markets.");
       if (mode === "live" && !liveAvailable) throw new Error("Prediction live trading is paused.");
@@ -93,11 +95,23 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "Prediction order submission failed.");
-        setMessage(
-          payload.data.status === "submitted"
-            ? `Order submitted on Solana. Match status may take time. Transaction: ${payload.data.signature}`
-            : `Order status ${payload.data.status}. Check Activity before trying again.`,
-        );
+        const sig = payload.data?.signature;
+        if (sig) setTxSignature(sig);
+        if (payload.data?.status === "submitted" || sig) {
+          setMessage(
+            sig
+              ? "Order submitted on Solana. Confirmation is in progress."
+              : "Order submitted on Solana. Check Activity for confirmation.",
+          );
+        } else if (payload.data?.status === "failed") {
+          setMessage(
+            `Order failed: ${payload.data.error ?? payload.message ?? "Transaction was rejected on-chain."}`,
+          );
+        } else {
+          setMessage(
+            `Order status: ${payload.data?.status ?? "unknown"}. ${sig ? `Transaction: ${sig}` : "Check Activity before trying again."}`,
+          );
+        }
         setPrepared(null);
         setAmount("");
         return;
@@ -217,7 +231,23 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
             : "Add a Solana wallet to trade live."}
         </p>
       )}
-      {message && <output className="mt-2 block text-slate-300">{message}</output>}
+      {message && (
+        <div className="mt-3 rounded border border-line bg-ink-raised p-2.5 text-xs text-slate-300">
+          <p>{message}</p>
+          {txSignature && (
+            <p className="mt-1.5 font-mono text-[11px]">
+              <a
+                href={`https://solscan.io/tx/${txSignature}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-bronze-300 underline hover:text-bronze-200"
+              >
+                View on Solscan ({txSignature.slice(0, 8)}…{txSignature.slice(-6)}) ↗
+              </a>
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

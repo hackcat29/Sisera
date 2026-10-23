@@ -80,7 +80,7 @@ export class PredictionTradingService {
     // Sisera's fee is a USDC transfer added to the order, shown to the user before they sign.
     const charged = await this.fees.apply(prepared.transaction, input.wallet, deposit);
     const id = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 45_000);
+    const expiresAt = new Date(Date.now() + 90_000);
     await savePredictionOrder(this.config.DATABASE_URL, {
       id,
       tenantId: input.tenantId,
@@ -128,23 +128,66 @@ export class PredictionTradingService {
       const transaction = VersionedTransaction.deserialize(
         Buffer.from(input.signedTransaction, "base64"),
       );
-      signature = await this.connection.sendRawTransaction(transaction.serialize(), {
-        maxRetries: 0,
-        skipPreflight: false,
-      });
-      const confirmation = await this.connection.confirmTransaction(signature, "confirmed");
-      if (confirmation.value.err) {
-        await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "failed", signature);
-        return { status: "failed", signature, orderPubkey: String(order.orderPubkey) };
+
+      try {
+        signature = await this.connection.sendRawTransaction(transaction.serialize(), {
+          maxRetries: 3,
+          skipPreflight: false,
+        });
+      } catch (sendError) {
+        const rawMsg =
+          sendError instanceof Error
+            ? sendError.message
+            : "Solana preflight transaction simulation failed";
+        console.error("[prediction-trading] sendRawTransaction failed:", rawMsg);
+        await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "failed");
+        if (/blockhash/i.test(rawMsg)) {
+          throw new TradeRejection(
+            "Order expired before signing was completed. Please review and sign again.",
+            422,
+          );
+        }
+        if (/insufficient/i.test(rawMsg)) {
+          throw new TradeRejection(
+            "Insufficient USDC or SOL balance to execute this prediction order.",
+            422,
+          );
+        }
+        throw new TradeRejection(`Solana transaction rejected: ${rawMsg}`, 422);
       }
+
+      // If signature was produced, the order has been broadcast to Solana validators.
+      try {
+        const confirmation = await Promise.race([
+          this.connection.confirmTransaction(signature, "confirmed"),
+          new Promise<{ value: { err: null } }>((resolve) =>
+            setTimeout(() => resolve({ value: { err: null } }), 12_000),
+          ),
+        ]);
+        if (confirmation.value.err) {
+          await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "failed", signature);
+          return { status: "failed", signature, orderPubkey: String(order.orderPubkey) };
+        }
+      } catch (confirmError) {
+        console.warn(
+          "[prediction-trading] confirmation timed out; order was broadcast:",
+          signature,
+          confirmError,
+        );
+      }
+
       await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "submitted", signature);
       return { status: "submitted", signature, orderPubkey: String(order.orderPubkey) };
-    } catch {
-      await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "unknown", signature);
+    } catch (error) {
+      if (error instanceof TradeRejection) throw error;
+      console.error("[prediction-trading] execution error:", error);
+      const finalStatus = signature ? "submitted" : "failed";
+      await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, finalStatus, signature);
       return {
-        status: "unknown",
+        status: finalStatus,
         signature: signature ?? null,
         orderPubkey: String(order.orderPubkey),
+        error: error instanceof Error ? error.message : "Unexpected trade error",
       };
     }
   }
