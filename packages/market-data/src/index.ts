@@ -1398,9 +1398,7 @@ function parsePantaApiMarket(
         ? item.marketPhase.toLowerCase()
         : "";
   const isGraduated =
-    item.isGraduated === true ||
-    item.graduated === true ||
-    phaseStr === "secondary";
+    item.isGraduated === true || item.graduated === true || phaseStr === "secondary";
   const phase: "primary" | "secondary" = isGraduated ? "secondary" : "primary";
 
   return {

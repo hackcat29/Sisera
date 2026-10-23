@@ -152,7 +152,7 @@ export default async function PredictionsPage({
               {phases.map((option) => {
                 const count =
                   option.id === "all"
-                    ? result.value?.phases?.all ?? allCount
+                    ? (result.value?.phases?.all ?? allCount)
                     : option.id === "primary"
                       ? result.value?.phases?.primary
                       : result.value?.phases?.secondary;

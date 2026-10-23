@@ -117,7 +117,8 @@ export default async function PredictionMarketPage({
               <Link href="/predictions" className="hover:text-bone">
                 Predictions
               </Link>{" "}
-              · Powered by Panta · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+              · Powered by Panta ·{" "}
+              {[market.category, market.subcategory].filter(Boolean).join(" · ")}
             </p>
           </div>
           <h1 className="display mt-2 flex items-center gap-3 text-[28px] leading-tight text-bone">
