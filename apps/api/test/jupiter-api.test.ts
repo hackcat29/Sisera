@@ -35,6 +35,26 @@ describe("Jupiter API access", () => {
     expect(JSON.stringify(keyless?.headers ?? {})).not.toContain("revoked-key");
   });
 
+  it("falls back to the keyless API when the key is rate-limited (429)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetcher = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.startsWith("https://api.jup.ag")
+        ? new Response('{"code":429,"message":"Too Many Requests"}', { status: 429 })
+        : Response.json({ ok: true }),
+    );
+    const jupiter = jupiterFetch("busy-key", fetcher as unknown as typeof fetch);
+
+    expect((await jupiter("/swap/v2/order?x=1")).status).toBe(200);
+    await jupiter("/swap/v2/order?x=2");
+    const urls = fetcher.mock.calls.map(([url]) => url);
+    expect(urls).toEqual([
+      "https://api.jup.ag/swap/v2/order?x=1",
+      "https://lite-api.jup.ag/swap/v2/order?x=1",
+      // Paused for rate-limit cool down rather than hitting 429 again
+      "https://lite-api.jup.ag/swap/v2/order?x=2",
+    ]);
+  });
+
   it("keeps using a working key", async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true }));
     const jupiter = jupiterFetch("good-key", fetcher as unknown as typeof fetch);

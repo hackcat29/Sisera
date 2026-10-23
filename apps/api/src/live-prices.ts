@@ -42,7 +42,7 @@ export class LivePriceHub {
     private readonly loadUniverse: () => Promise<{ priority: string[]; tail: string[] }>,
     apiKey?: string,
     fetcher: typeof fetch = globalThis.fetch,
-    private readonly batchesPerTick = 3,
+    private readonly batchesPerTick = 1,
   ) {
     this.jupiter = jupiterFetch(apiKey, fetcher);
   }
@@ -72,7 +72,7 @@ export class LivePriceHub {
     this.timer = setInterval(() => {
       if (Date.now() - this.lastDemand > 30_000) return this.stop();
       void this.tick();
-    }, 1000);
+    }, 3000);
     this.timer.unref?.();
   }
 
