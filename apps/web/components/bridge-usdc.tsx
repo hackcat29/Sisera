@@ -27,8 +27,8 @@ export function BridgeUsdc() {
   const { evm: wallet, solanaAddress } = useSiseraWallets();
   const solana = solanaAddress ?? getPrivySolanaAddress(user);
   const [origin, setOrigin] = useState(8453);
-  // Hyperliquid (1337) delivers straight to the trading account; HyperEVM (999) is the EVM chain.
-  const [destination, setDestination] = useState<1337 | 999 | 792703809>(1337);
+  // Hyperliquid (1337) delivers straight to the trading account for perps; Solana (792703809) for spot.
+  const [destination, setDestination] = useState<1337 | 792703809>(1337);
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quotedAt, setQuotedAt] = useState(0);
@@ -171,14 +171,13 @@ export function BridgeUsdc() {
           <select
             value={destination}
             onChange={(event) => {
-              setDestination(Number(event.target.value) as 1337 | 999 | 792703809);
+              setDestination(Number(event.target.value) as 1337 | 792703809);
               setQuote(null);
             }}
             className="mt-1 w-full rounded border border-line bg-ink-raised p-2 text-slate-100"
           >
-            <option value={1337}>Hyperliquid · trading account</option>
+            <option value={1337}>Hyperliquid · trading account (perps)</option>
             <option value={792703809}>Solana · stocks &amp; predictions</option>
-            <option value={999}>HyperEVM</option>
           </select>
         </label>
         <label className="text-xs text-slate-400">

@@ -16,7 +16,7 @@ Sisera is a free web terminal at ${site.url}. Every market page is public; signi
 - Crypto and perpetuals: spot markets, Hyperliquid perpetuals with order book depth, funding, and open interest.
 - Prediction markets: browse markets with paper and live trading where available.
 - Intelligence: why a price moved, combining the move with news, reference prices, and market context.
-- Portfolio and risk: Solana, HyperEVM, and Hyperliquid holdings in one view, with exposure and shock tests.
+- Portfolio and risk: Solana and Hyperliquid holdings in one view, with exposure and shock tests.
 - Agents: rule-bound research agents drafted as hashed policies with capital caps, drawdown limits, stop-loss and take-profit rules, and a kill switch. Agents propose; an operator decides. They move through a seven-stage lifecycle (draft, backtest, stress test, paper, shadow, limited live, live).
 
 ## Key pages

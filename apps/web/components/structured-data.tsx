@@ -65,7 +65,7 @@ export const applicationSchema = {
     "Crypto spot and Hyperliquid perpetuals with order book depth",
     "Prediction markets with paper trading",
     "Company news and price-move intelligence",
-    "Portfolio and risk views across Solana, HyperEVM, and Hyperliquid",
+    "Portfolio and risk views across Solana and Hyperliquid",
     "Rule-bound research agents with capital caps and kill switches",
   ],
 };

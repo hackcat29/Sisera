@@ -23,7 +23,6 @@ const EXPLORERS: Record<number, string> = {
   10: "https://optimistic.etherscan.io/tx/",
   137: "https://polygonscan.com/tx/",
   56: "https://bscscan.com/tx/",
-  999: "https://hyperevmscan.io/tx/",
 };
 /** A prepared Solana transfer uses a recent blockhash, which expires after about a minute. */
 const REVIEW_TTL_MS = 50_000;
@@ -598,7 +597,7 @@ function EvmWithdraw({ onDone }: { onDone: (done: Done) => void }) {
   useEffect(() => void load(), [load]);
 
   const choices = useMemo(
-    () => (assets ?? []).filter((item) => BigInt(item.spendableRaw) > 0n),
+    () => (assets ?? []).filter((item) => BigInt(item.spendableRaw) > 0n && item.chainId !== 999),
     [assets],
   );
   const asset = choices.find((item) => keyOf(item) === selected) ?? choices[0] ?? null;
@@ -692,8 +691,8 @@ function EvmWithdraw({ onDone }: { onDone: (done: Done) => void }) {
   if (!choices.length)
     return (
       <p className="text-xs leading-5 text-slate-400">
-        Your EVM wallet has nothing to withdraw on Ethereum, Base, Arbitrum, Optimism, Polygon, BNB
-        Chain or HyperEVM. For USDC in your Hyperliquid account, use the Hyperliquid tab.
+        Your EVM wallet has nothing to withdraw on Ethereum, Base, Arbitrum, Optimism, Polygon or
+        BNB Chain. For USDC in your Hyperliquid account, use the Hyperliquid tab.
       </p>
     );
 

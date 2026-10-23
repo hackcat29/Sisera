@@ -7,10 +7,9 @@ import { type RelayStep, executeRelaySteps, waitForRelay } from "../lib/relay-ex
 import { useSiseraWallets } from "../lib/use-sisera-wallets";
 
 const SOLANA = 792703809;
-const HYPEREVM = 999;
 /** Relay's chain ID for the Hyperliquid trading account. */
 const HYPERLIQUID = 1337;
-type Destination = typeof SOLANA | typeof HYPEREVM | typeof HYPERLIQUID;
+type Destination = typeof SOLANA | typeof HYPERLIQUID;
 const CHAINS = [
   { id: 1, name: "Ethereum" },
   { id: 8453, name: "Base" },
@@ -18,7 +17,6 @@ const CHAINS = [
   { id: 10, name: "Optimism" },
   { id: 137, name: "Polygon" },
   { id: 56, name: "BNB Chain" },
-  { id: 999, name: "HyperEVM" },
 ];
 
 type Asset = {
@@ -74,7 +72,7 @@ const money = (value: string | number) =>
   Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * Swaps any token in the account's EVM wallet into USDC on Solana or HyperEVM, routed by Relay.
+ * Swaps any token in the account's EVM wallet into USDC on Solana or Hyperliquid, routed by Relay.
  * The wallet signs an approval (for ERC-20s) and the swap; Relay delivers USDC to the account.
  */
 export function EvmSwapToUsdc() {
@@ -126,12 +124,8 @@ export function EvmSwapToUsdc() {
 
   const choices = useMemo(
     () =>
-      (assets ?? []).filter(
-        (asset) =>
-          BigInt(asset.spendableRaw) > 0n &&
-          !(asset.usdc && asset.chainId === HYPEREVM && destination === HYPEREVM),
-      ),
-    [assets, destination],
+      (assets ?? []).filter((asset) => BigInt(asset.spendableRaw) > 0n && asset.chainId !== 999),
+    [assets],
   );
   const asset = choices.find((item) => keyOf(item) === selected) ?? choices[0] ?? null;
 
@@ -228,8 +222,7 @@ export function EvmSwapToUsdc() {
     setDone({ requestId, delivered: false });
     setMessage("Swap submitted. Relay is delivering your USDC…");
     // Delivery is tracked in the background so the panel is free for the next swap.
-    const chainName =
-      destination === SOLANA ? "Solana" : destination === HYPERLIQUID ? "Hyperliquid" : "HyperEVM";
+    const chainName = destination === SOLANA ? "Solana" : "Hyperliquid";
     void waitForRelay(requestId, (status) =>
       setMessage(`Delivery status: ${status.status.replaceAll("_", " ")}`),
     ).then((final) => {
@@ -330,7 +323,6 @@ export function EvmSwapToUsdc() {
             >
               <option value={SOLANA}>Solana · stocks & predictions</option>
               <option value={HYPERLIQUID}>Hyperliquid · perps account</option>
-              <option value={HYPEREVM}>HyperEVM</option>
             </select>
           </label>
         </div>
@@ -360,12 +352,7 @@ export function EvmSwapToUsdc() {
               {fromRaw(quote.originAmount, quote.originDecimals)} {asset.symbol}
             </strong>{" "}
             on {quote.originChain} for about <strong>${money(quote.outputAmountUsdc)} USDC</strong>{" "}
-            on{" "}
-            {quote.destinationChainId === SOLANA
-              ? "Solana"
-              : quote.destinationChainId === HYPERLIQUID
-                ? "Hyperliquid"
-                : "HyperEVM"}
+            on {quote.destinationChainId === SOLANA ? "Solana" : "Hyperliquid"}
           </p>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 font-mono text-[11px]">
             {quote.minimumOutputUsdc && (

@@ -121,7 +121,7 @@ export function FundAccountButton({
             <AddressCard
               title="Ethereum and EVM chains"
               address={evmAddress}
-              networks="Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain and HyperEVM. Also your Hyperliquid account."
+              networks="Ethereum, Base, Arbitrum, Optimism, Polygon and BNB Chain. Also your Hyperliquid account."
               accepts="Any token on these chains can be swapped to USDC. USDC sent to this address on Hyperliquid (from Hyperliquid or an exchange that supports it) is ready for perps."
             />
           </div>

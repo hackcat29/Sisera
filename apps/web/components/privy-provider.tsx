@@ -3,16 +3,16 @@
 import { PrivyProvider } from "@privy-io/react-auth";
 import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
 import type { ReactNode } from "react";
-import { arbitrum, base, bsc, hyperEvm, mainnet, optimism, polygon } from "viem/chains";
+import { arbitrum, base, bsc, mainnet, optimism, polygon } from "viem/chains";
 
 const DEFAULT_PRIVY_APP_ID = "cmuhawmmr00xa0bjwxxjqdocd";
 /**
- * EVM chains the embedded wallet signs on for the bridge and Swap to USDC. Listed explicitly because
- * Privy's defaults omit BNB Chain and map chain 999 to a testnet rather than HyperEVM.
+ * EVM chains the embedded wallet signs on for the bridge and Swap to USDC.
  */
-const SUPPORTED_EVM_CHAINS = [mainnet, base, arbitrum, optimism, polygon, bsc, hyperEvm].map(
-  (chain) => ({ ...chain, testnet: false }),
-);
+const SUPPORTED_EVM_CHAINS = [mainnet, base, arbitrum, optimism, polygon, bsc].map((chain) => ({
+  ...chain,
+  testnet: false,
+}));
 
 /**
  * Used by Privy's Solana signing screen to estimate fees and simulate transactions. Requests go

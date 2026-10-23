@@ -42,9 +42,7 @@ export default function AboutPage() {
           Panta prediction markets with wallet-signed live orders and an optional practice account.
         </li>
         <li>Read why a price moved, with company news and market context on the same page.</li>
-        <li>
-          See Solana, HyperEVM, and Hyperliquid holdings together, with exposure and shock tests.
-        </li>
+        <li>See Solana and Hyperliquid holdings together, with exposure and shock tests.</li>
         <li>
           Draft research agents as policies with capital caps, drawdown limits, and a kill switch.
         </li>

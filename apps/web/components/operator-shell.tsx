@@ -36,7 +36,6 @@ import { FundAccountButton } from "./fund-account";
 import { MarketAutoRefresh } from "./market-auto-refresh";
 import { MarketSession } from "./market-session";
 import { OperatorProfile } from "./operator-profile";
-import { PortfolioConnect } from "./portfolio-connect";
 import { SiseraMark } from "./sisera-mark";
 import { TokenAvatar } from "./token-avatar";
 import { WithdrawButton } from "./withdraw-funds";
@@ -394,7 +393,6 @@ export function OperatorShell({
               <>
                 <FundAccountButton compact className="hidden sm:inline-flex" />
                 <WithdrawButton compact className="hidden lg:inline-flex" />
-                <PortfolioConnect compact />
                 <OperatorProfile operator={operator} localMode={localMode} />
               </>
             ) : (
