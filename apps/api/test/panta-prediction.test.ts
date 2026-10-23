@@ -183,4 +183,3 @@ describe("PantaPredictionTradingClient", () => {
     expect(quoteNo.priceUsd).toBe("0.499916");
   });
 });
-

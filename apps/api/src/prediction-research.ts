@@ -127,16 +127,13 @@ export async function researchPredictionMarket(
           return Book.parse(await response.json());
         })
       : nativePanta && market.pricingAvailable !== false && panta
-        ? fetcher(
-            `${panta.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(market.id)}/`,
-            {
-              headers: {
-                accept: "application/json",
-                ...(panta.apiKey ? { "x-api-key": panta.apiKey } : {}),
-              },
-              signal: AbortSignal.timeout(8000),
+        ? fetcher(`${panta.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(market.id)}/`, {
+            headers: {
+              accept: "application/json",
+              ...(panta.apiKey ? { "x-api-key": panta.apiKey } : {}),
             },
-          ).then(async (response) => {
+            signal: AbortSignal.timeout(8000),
+          }).then(async (response) => {
             if (!response.ok) throw new Error("Panta book unavailable");
             const raw = (await response.json()) as Record<string, unknown>;
             const parseNum = (v: unknown) => {
