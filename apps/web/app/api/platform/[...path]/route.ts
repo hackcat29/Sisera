@@ -22,6 +22,8 @@ const ALLOWED = [
   "agent-orders",
   "launches",
   "clawpump",
+  "prediction-markets",
+  "predictions",
 ];
 
 async function forward(request: NextRequest, path: string[]) {
@@ -52,7 +54,8 @@ async function forward(request: NextRequest, path: string[]) {
   else if (local)
     Object.assign(headers, { "x-sisera-dev-role": "trader", "x-sisera-dev-subject": "web-local" });
   if (write) headers["content-type"] = "application/json";
-  const target = `${serverApiUrl()}/v1/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
+  const resolvedPath = path[0] === "predictions" ? ["prediction-markets", ...path.slice(1)] : path;
+  const target = `${serverApiUrl()}/v1/${resolvedPath.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
   const long =
     path.includes("compile") ||
     path.includes("backtest") ||

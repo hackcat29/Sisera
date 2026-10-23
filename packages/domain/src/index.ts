@@ -229,6 +229,8 @@ export const PredictionMarket = z.object({
   underlyingProvider: z.string().nullable().optional(),
   category: z.string().nullable().optional(),
   subcategory: z.string().nullable().optional(),
+  phase: z.enum(["primary", "secondary"]).optional(),
+  isGraduated: z.boolean().optional(),
   eventId: z.string().nullable().optional(),
   eventTitle: z.string().nullable().optional(),
   marketTitle: z.string().nullable().optional(),

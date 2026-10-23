@@ -2490,6 +2490,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           limit: z.coerce.number().int().min(1).max(500).default(50),
           offset: z.coerce.number().int().min(0).default(0),
           category: z.string().trim().max(40).optional(),
+          phase: z.enum(["all", "primary", "secondary"]).optional(),
           q: z.string().trim().max(80).optional(),
           sort: z.enum(["volume", "closing", "contested"]).default("volume"),
         })
@@ -2500,6 +2501,11 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         const counts = new Map<string, number>();
         for (const market of all)
           counts.set(market.category ?? "other", (counts.get(market.category ?? "other") ?? 0) + 1);
+        const phases = {
+          all: all.length,
+          primary: all.filter((m) => m.phase !== "secondary").length,
+          secondary: all.filter((m) => m.phase === "secondary").length,
+        };
         const needle = query.q?.toLowerCase();
         const yes = (market: PredictionMarket) => Number(market.outcomes[0]?.probability ?? 0);
         const filtered = all
@@ -2507,8 +2513,13 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             (market) =>
               !query.category ||
               query.category === "all" ||
-              (market.category ?? "other") === query.category,
+              (market.category ?? "other").toLowerCase() === query.category.toLowerCase(),
           )
+          .filter((market) => {
+            if (!query.phase || query.phase === "all") return true;
+            if (query.phase === "secondary") return market.phase === "secondary";
+            return market.phase !== "secondary";
+          })
           .filter((market) => !needle || market.title.toLowerCase().includes(needle))
           .sort((a, b) =>
             query.sort === "closing"
@@ -2528,6 +2539,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
             .map(({ resolutionRules: _rules, ...market }) => market),
           total: filtered.length,
           all: all.length,
+          phases,
           categories: [...counts.entries()]
             .sort((a, b) => b[1] - a[1])
             .map(([name, count]) => ({ name, count })),

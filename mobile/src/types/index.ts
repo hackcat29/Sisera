@@ -221,6 +221,8 @@ export interface PredictionMarket {
   id: string;
   title: string;
   category: string;
+  phase?: "primary" | "secondary";
+  isGraduated?: boolean;
   yesProbabilityPct: number;
   noProbabilityPct: number;
   volumeUsd: number;

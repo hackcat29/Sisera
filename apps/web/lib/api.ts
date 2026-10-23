@@ -590,16 +590,22 @@ export type PredictionPage = {
   data: PredictionMarket[];
   total: number;
   all: number;
+  phases?: {
+    all: number;
+    primary: number;
+    secondary: number;
+  };
   categories: Array<{ name: string; count: number }>;
 };
 
-/** One filtered, sorted page of open prediction markets, with category counts. */
+/** One filtered, sorted page of open prediction markets, with category and phase counts. */
 export async function getPredictionMarkets(
   identity: ApiIdentity,
   query: {
     limit?: number;
     offset?: number;
     category?: string | undefined;
+    phase?: "all" | "primary" | "secondary" | undefined;
     q?: string | undefined;
     sort?: "volume" | "closing" | "contested";
   } = {},
@@ -608,6 +614,7 @@ export async function getPredictionMarkets(
   params.set("limit", String(query.limit ?? 50));
   params.set("offset", String(query.offset ?? 0));
   if (query.category && query.category !== "all") params.set("category", query.category);
+  if (query.phase && query.phase !== "all") params.set("phase", query.phase);
   if (query.q) params.set("q", query.q);
   params.set("sort", query.sort ?? "volume");
   return getJson<PredictionPage>(`/v1/prediction-markets?${params.toString()}`, identity, 10000);

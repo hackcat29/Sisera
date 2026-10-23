@@ -1391,6 +1391,18 @@ function parsePantaApiMarket(
   const yesProb = yes != null && Number.isFinite(yes) ? Math.min(Math.max(yes, 0), 1) : 0.5;
   const noProb = no != null && Number.isFinite(no) ? Math.min(Math.max(no, 0), 1) : 1 - yesProb;
 
+  const phaseStr =
+    typeof item.phase === "string"
+      ? item.phase.toLowerCase()
+      : typeof item.marketPhase === "string"
+        ? item.marketPhase.toLowerCase()
+        : "";
+  const isGraduated =
+    item.isGraduated === true ||
+    item.graduated === true ||
+    phaseStr === "secondary";
+  const phase: "primary" | "secondary" = isGraduated ? "secondary" : "primary";
+
   return {
     id: marketId,
     provider: "panta",
@@ -1402,6 +1414,8 @@ function parsePantaApiMarket(
     marketTitle: title,
     category,
     subcategory,
+    phase,
+    isGraduated,
     imageUrl,
     openedAt,
     volumeUsd,
@@ -1516,6 +1530,8 @@ function decodePantaEventAccount(
       marketTitle: question,
       category,
       subcategory: isGraduated ? "secondary" : "primary",
+      phase: isGraduated ? "secondary" : "primary",
+      isGraduated,
       imageUrl: null,
       openedAt,
       closesAt,

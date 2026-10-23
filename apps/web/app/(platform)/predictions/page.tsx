@@ -25,6 +25,12 @@ const sorts = [
   { id: "contested", label: "Closest to 50/50" },
 ] as const;
 
+const phases = [
+  { id: "all", label: "All phases" },
+  { id: "primary", label: "Primary (Bonding Curve)" },
+  { id: "secondary", label: "Secondary (Orderbook)" },
+] as const;
+
 const compact = (value: number | null | undefined) =>
   value == null
     ? "—"
@@ -40,12 +46,21 @@ function closesIn(closesAt: string | null) {
 
 export default async function PredictionsPage({
   searchParams,
-}: { searchParams: Promise<{ q?: string; category?: string; sort?: string; page?: string }> }) {
+}: {
+  searchParams: Promise<{
+    q?: string;
+    category?: string;
+    phase?: string;
+    sort?: string;
+    page?: string;
+  }>;
+}) {
   const parameters = await searchParams;
   const session = await auth();
   const signedIn = Boolean(session) || process.env.SISERA_LOCAL_OPERATOR_MODE === "true";
   const query = (parameters.q ?? "").trim().toLowerCase().slice(0, 80);
   const category = parameters.category ?? "all";
+  const phase = (parameters.phase ?? "all").toLowerCase() as "all" | "primary" | "secondary";
   const sort = sorts.find((option) => option.id === parameters.sort)?.id ?? "volume";
   const page = Math.max(0, Number(parameters.page ?? 0) || 0);
   const result = await getPredictionMarkets(
@@ -53,7 +68,7 @@ export default async function PredictionsPage({
       accessToken: session?.accessToken,
       localOperator: process.env.SISERA_LOCAL_OPERATOR_MODE === "true",
     },
-    { limit: PAGE, offset: page * PAGE, category, q: query || undefined, sort },
+    { limit: PAGE, offset: page * PAGE, category, phase, q: query || undefined, sort },
   ).then(
     (value) => ({ value, error: null as unknown }),
     (error: unknown) => ({ value: null, error }),
@@ -65,11 +80,18 @@ export default async function PredictionsPage({
     (item) => [item.name, item.count] as const,
   );
   const yes = (market: PredictionMarket) => Number(market.outcomes[0]?.probability ?? 0);
-  const link = (next: { category?: string; sort?: string; page?: number }) => {
+  const link = (next: {
+    category?: string;
+    phase?: string;
+    sort?: string;
+    page?: number;
+  }) => {
     const params = new URLSearchParams();
     if (query) params.set("q", query);
     const nextCategory = next.category ?? category;
     if (nextCategory !== "all") params.set("category", nextCategory);
+    const nextPhase = next.phase ?? phase;
+    if (nextPhase !== "all") params.set("phase", nextPhase);
     params.set("sort", next.sort ?? sort);
     if (next.page) params.set("page", String(next.page));
     return `/predictions?${params.toString()}`;
@@ -108,29 +130,66 @@ export default async function PredictionsPage({
             </div>
           </details>
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <form
-            action="/predictions"
-            className="flex items-center gap-2 border border-line bg-panel px-3"
-          >
-            <Search size={13} className="text-slate-400" />
-            <input
-              name="q"
-              defaultValue={parameters.q ?? ""}
-              placeholder={`Search ${allCount.toLocaleString()} markets`}
-              aria-label="Search prediction markets"
-              className="h-9 w-64 bg-transparent text-xs text-bone outline-none placeholder:text-slate-500"
-            />
-            {category !== "all" && <input type="hidden" name="category" value={category} />}
-            <input type="hidden" name="sort" value={sort} />
-          </form>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <form
+              action="/predictions"
+              className="flex items-center gap-2 border border-line bg-panel px-3"
+            >
+              <Search size={13} className="text-slate-400" />
+              <input
+                name="q"
+                defaultValue={parameters.q ?? ""}
+                placeholder={`Search ${allCount.toLocaleString()} markets`}
+                aria-label="Search prediction markets"
+                className="h-9 w-64 bg-transparent text-xs text-bone outline-none placeholder:text-slate-500"
+              />
+              {category !== "all" && <input type="hidden" name="category" value={category} />}
+              {phase !== "all" && <input type="hidden" name="phase" value={phase} />}
+              <input type="hidden" name="sort" value={sort} />
+            </form>
+            <div className="flex border border-line bg-panel">
+              {phases.map((option) => {
+                const count =
+                  option.id === "all"
+                    ? result.value?.phases?.all ?? allCount
+                    : option.id === "primary"
+                      ? result.value?.phases?.primary
+                      : result.value?.phases?.secondary;
+                const active = phase === option.id;
+                return (
+                  <Link
+                    prefetch={false}
+                    key={option.id}
+                    href={link({ phase: option.id, page: 0 })}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                      active
+                        ? "bg-bronze-300 text-ink font-medium"
+                        : "text-slate-300 hover:text-bone hover:bg-white/[.04]"
+                    }`}
+                  >
+                    <span>{option.label}</span>
+                    {count != null && (
+                      <span
+                        className={`font-mono text-[10px] ${
+                          active ? "text-ink/80" : "text-slate-500"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
           <div className="flex border border-line">
             {sorts.map((option) => (
               <Link
                 prefetch={false}
                 key={option.id}
                 href={link({ sort: option.id, page: 0 })}
-                className={`px-3 py-2 text-xs ${sort === option.id ? "bg-bronze-300 text-ink" : "text-slate-300 hover:text-bone"}`}
+                className={`px-3 py-2 text-xs ${sort === option.id ? "bg-bronze-300 text-ink font-medium" : "text-slate-300 hover:text-bone"}`}
               >
                 {option.label}
               </Link>
@@ -192,9 +251,32 @@ export default async function PredictionsPage({
                               </span>
                             )}
                             <span className="min-w-0">
-                              <span className="line-clamp-1 font-medium text-bone">
-                                {market.title}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="line-clamp-1 font-medium text-bone">
+                                  {market.title}
+                                </span>
+                                <span
+                                  className={`inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded border ${
+                                    market.phase === "secondary"
+                                      ? "border-purple-500/40 bg-purple-500/10 text-purple-300"
+                                      : "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                                  }`}
+                                  title={
+                                    market.phase === "secondary"
+                                      ? "Secondary phase: Graduated to open on-chain CLOB orderbook"
+                                      : "Primary phase: Virtual bonding curve AMM"
+                                  }
+                                >
+                                  <span
+                                    className={`size-1 rounded-full ${
+                                      market.phase === "secondary"
+                                        ? "bg-purple-400"
+                                        : "bg-sky-400 animate-pulse"
+                                    }`}
+                                  />
+                                  {market.phase === "secondary" ? "Secondary" : "Primary"}
+                                </span>
+                              </div>
                               <span className="text-[11px] text-slate-400">
                                 <span className="capitalize">
                                   {[market.category, market.subcategory]

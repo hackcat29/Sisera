@@ -96,12 +96,30 @@ export default async function PredictionMarketPage({
     <div className="min-h-full bg-ink">
       <header className="flex flex-wrap items-end justify-between gap-6 border-b border-line px-4 py-5 sm:px-6">
         <div className="max-w-3xl">
-          <p className="data-label text-bronze-300">
-            <Link href="/predictions" className="hover:text-bone">
-              Predictions
-            </Link>{" "}
-            · Powered by Panta · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
-          </p>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded border ${
+                market.phase === "secondary"
+                  ? "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                  : "border-sky-500/40 bg-sky-500/15 text-sky-300"
+              }`}
+            >
+              <span
+                className={`size-1.5 rounded-full ${
+                  market.phase === "secondary" ? "bg-purple-400" : "bg-sky-400 animate-pulse"
+                }`}
+              />
+              {market.phase === "secondary"
+                ? "Secondary Phase · Graduated CLOB"
+                : "Primary Phase · Bonding Curve AMM"}
+            </span>
+            <p className="data-label text-bronze-300">
+              <Link href="/predictions" className="hover:text-bone">
+                Predictions
+              </Link>{" "}
+              · Powered by Panta · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+            </p>
+          </div>
           <h1 className="display mt-2 flex items-center gap-3 text-[28px] leading-tight text-bone">
             {predictionLogos(market) && (
               <TokenAvatar

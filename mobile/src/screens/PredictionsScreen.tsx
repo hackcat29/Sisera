@@ -20,6 +20,7 @@ export const PredictionsScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [category, setCategory] = useState("ALL");
+  const [phaseFilter, setPhaseFilter] = useState<"ALL" | "PRIMARY" | "SECONDARY">("ALL");
   const [selectedMarket, setSelectedMarket] = useState<PredictionMarket | null>(null);
   const [betOutcome, setBetOutcome] = useState<"YES" | "NO">("YES");
   const [betAmount, setBetAmount] = useState("100");
@@ -58,6 +59,10 @@ export const PredictionsScreen: React.FC = () => {
   };
 
   const filtered = markets.filter((m) => {
+    if (phaseFilter !== "ALL") {
+      const p = (m.phase ?? (m.isGraduated ? "secondary" : "primary")).toUpperCase();
+      if (p !== phaseFilter) return false;
+    }
     if (category === "ALL") return true;
     return m.category.toUpperCase() === category;
   });
@@ -69,6 +74,21 @@ export const PredictionsScreen: React.FC = () => {
         subtitle="JUPITER PREDICTIONS • PROBABILITY ORDER BOOKS"
         onRefresh={handleRefresh}
       />
+
+      {/* Phase Segmented Pills */}
+      <View style={styles.phaseRow}>
+        {(["ALL", "PRIMARY", "SECONDARY"] as const).map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[styles.phasePill, phaseFilter === p && styles.phasePillActive]}
+            onPress={() => setPhaseFilter(p)}
+          >
+            <Text style={[styles.phasePillText, phaseFilter === p && styles.phasePillTextActive]}>
+              {p === "ALL" ? "ALL PHASES" : p === "PRIMARY" ? "PRIMARY (AMM)" : "SECONDARY (CLOB)"}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       {/* Category Pills */}
       <View style={styles.catRow}>
@@ -105,8 +125,35 @@ export const PredictionsScreen: React.FC = () => {
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View style={styles.cardTop}>
-                <View style={styles.catTag}>
-                  <Text style={styles.catTagText}>{item.category.toUpperCase()}</Text>
+                <View style={styles.tagsRow}>
+                  <View style={styles.catTag}>
+                    <Text style={styles.catTagText}>{item.category.toUpperCase()}</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.phaseBadge,
+                      item.phase === "secondary" ? styles.phaseSecondary : styles.phasePrimary,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.phaseDot,
+                        item.phase === "secondary"
+                          ? styles.phaseDotSecondary
+                          : styles.phaseDotPrimary,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.phaseText,
+                        item.phase === "secondary"
+                          ? styles.phaseTextSecondary
+                          : styles.phaseTextPrimary,
+                      ]}
+                    >
+                      {item.phase === "secondary" ? "SECONDARY" : "PRIMARY"}
+                    </Text>
+                  </View>
                 </View>
                 <Text style={styles.closesInText}>Closes: {item.closesAt}</Text>
               </View>
@@ -283,6 +330,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: THEME.colors.background,
   },
+  phaseRow: {
+    flexDirection: "row",
+    backgroundColor: THEME.colors.surface,
+    paddingHorizontal: THEME.spacing.md,
+    paddingTop: 8,
+    paddingBottom: 4,
+    gap: 6,
+  },
+  phasePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: THEME.colors.panel,
+    borderWidth: 1,
+    borderColor: THEME.colors.lineSubtle,
+    borderRadius: 2,
+  },
+  phasePillActive: {
+    borderColor: THEME.colors.bronze,
+    backgroundColor: THEME.colors.panelRaised,
+  },
+  phasePillText: {
+    fontSize: 9,
+    fontFamily: THEME.fonts.mono,
+    fontWeight: "700",
+    color: THEME.colors.textFaint,
+  },
+  phasePillTextActive: {
+    color: THEME.colors.bronze,
+  },
   catRow: {
     flexDirection: "row",
     backgroundColor: THEME.colors.surface,
@@ -354,6 +430,51 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: THEME.colors.bronze,
     letterSpacing: 0.5,
+  },
+  tagsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  phaseBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 2,
+    borderWidth: 1,
+  },
+  phasePrimary: {
+    backgroundColor: "rgba(56, 189, 248, 0.1)",
+    borderColor: "rgba(56, 189, 248, 0.35)",
+  },
+  phaseSecondary: {
+    backgroundColor: "rgba(168, 85, 247, 0.1)",
+    borderColor: "rgba(168, 85, 247, 0.35)",
+  },
+  phaseDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  phaseDotPrimary: {
+    backgroundColor: "#38bdf8",
+  },
+  phaseDotSecondary: {
+    backgroundColor: "#a855f7",
+  },
+  phaseText: {
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    fontFamily: THEME.fonts.mono,
+  },
+  phaseTextPrimary: {
+    color: "#38bdf8",
+  },
+  phaseTextSecondary: {
+    color: "#c084fc",
   },
   closesInText: {
     fontSize: 10,
