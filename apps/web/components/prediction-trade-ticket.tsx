@@ -297,7 +297,8 @@ export function PredictionTradeTicket({
               )}
             </div>
             <p className="mt-2 text-slate-300 text-[11px] leading-relaxed">
-              This prediction event has ended. If you hold winning shares, you can claim your 1.00 USDC payout directly to your connected wallet.
+              This prediction event has ended. If you hold winning shares, you can claim your 1.00
+              USDC payout directly to your connected wallet.
             </p>
           </div>
 

@@ -265,7 +265,9 @@ export class PredictionTradingService {
     }
     let transaction: VersionedTransaction;
     try {
-      transaction = VersionedTransaction.deserialize(Buffer.from(input.signedTransaction, "base64"));
+      transaction = VersionedTransaction.deserialize(
+        Buffer.from(input.signedTransaction, "base64"),
+      );
     } catch {
       throw new TradeRejection("Invalid signed Solana transaction format.", 400);
     }
@@ -312,4 +314,3 @@ export class PredictionTradingService {
     return { status: "confirmed", signature, marketId: input.marketId };
   }
 }
-

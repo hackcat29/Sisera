@@ -310,13 +310,7 @@ export default async function PredictionMarketPage({
               marketPhase={market.phase}
               isGraduated={market.isGraduated}
               resolvedWinner={
-                market.status === "resolved"
-                  ? yes === 1
-                    ? "yes"
-                    : no === 1
-                      ? "no"
-                      : null
-                  : null
+                market.status === "resolved" ? (yes === 1 ? "yes" : no === 1 ? "no" : null) : null
               }
             />
           ) : (

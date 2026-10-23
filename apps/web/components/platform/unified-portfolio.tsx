@@ -424,7 +424,8 @@ export function UnifiedPortfolio() {
                     rel="noreferrer"
                     className="font-mono text-emerald-300 underline hover:text-emerald-100"
                   >
-                    View on Solscan ({claimToast.signature.slice(0, 6)}…{claimToast.signature.slice(-4)}) ↗
+                    View on Solscan ({claimToast.signature.slice(0, 6)}…
+                    {claimToast.signature.slice(-4)}) ↗
                   </a>
                 )}
               </div>

@@ -78,4 +78,3 @@ export function settlePredictionPaperOrder(
     feeUsd: fee.toString(),
   };
 }
-
