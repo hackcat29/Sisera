@@ -33,6 +33,10 @@ type Position = {
   title?: string | null;
   marketId?: string | null;
   outcome?: "yes" | "no";
+  claimable?: boolean;
+  status?: string | null;
+  phase?: string | null;
+  winnerOutcome?: "yes" | "no" | null;
 };
 /**
  * A shareable PnL card for a prediction position, from its average price and the market's
@@ -234,7 +238,87 @@ export function usePortfolio(mode: "paper" | "live") {
 /** One portfolio across tokenized stocks, pre-IPO, agent tokens, crypto and agent books. */
 export function UnifiedPortfolio() {
   const [mode, setMode] = useState<"paper" | "live">("live");
-  const { view, error } = usePortfolio(mode);
+  const { view, error, reload } = usePortfolio(mode);
+  const signer = useSolanaSigner();
+  const [claimingKey, setClaimingKey] = useState<string | null>(null);
+  const [claimToast, setClaimToast] = useState<{
+    type: "success" | "error";
+    message: string;
+    signature?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    const handler = () => reload();
+    window.addEventListener("sisera:prediction-claimed", handler);
+    window.addEventListener("sisera:prediction-paper-filled", handler);
+    return () => {
+      window.removeEventListener("sisera:prediction-claimed", handler);
+      window.removeEventListener("sisera:prediction-paper-filled", handler);
+    };
+  }, [reload]);
+
+  async function claimPayout(position: Position) {
+    if (!position.marketId) return;
+    const walletAddress = signer.address;
+    if (!walletAddress || !signer.ready) {
+      setClaimToast({
+        type: "error",
+        message: "Please connect your Solana wallet to claim winnings.",
+      });
+      return;
+    }
+    setClaimingKey(position.key);
+    setClaimToast(null);
+    try {
+      const prepRes = await fetch("/api/prediction-claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "prepare",
+          wallet: walletAddress,
+          marketId: position.marketId,
+        }),
+      });
+      const prepData = await prepRes.json();
+      if (!prepRes.ok) {
+        throw new Error(prepData.message ?? "Could not build claim transaction.");
+      }
+
+      const [signedTransaction] = await signer.signAll([prepData.data.transaction]);
+      if (!signedTransaction) throw new Error("Wallet declined the claim transaction signature.");
+
+      const execRes = await fetch("/api/prediction-claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "execute",
+          wallet: walletAddress,
+          marketId: position.marketId,
+          signedTransaction,
+        }),
+      });
+      const execData = await execRes.json();
+      if (!execRes.ok) {
+        throw new Error(execData.message ?? "Claim execution failed on Solana.");
+      }
+
+      setClaimToast({
+        type: "success",
+        message: `Winnings claimed successfully! Payout deposited to ${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}.`,
+        signature: execData.data?.signature ?? null,
+      });
+      reload();
+      window.dispatchEvent(new Event("sisera:prediction-claimed"));
+    } catch (err) {
+      setClaimToast({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to claim prediction winnings.",
+      });
+    } finally {
+      setClaimingKey(null);
+    }
+  }
+
   return (
     <div className="space-y-4 p-4 md:px-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -322,9 +406,41 @@ export function UnifiedPortfolio() {
                 ` ${view.reconciliation.unnormalizedLiveSwaps} earlier live swap(s) predate ledger normalization and are excluded.`}
             </Note>
           )}
+
+          {claimToast && (
+            <div
+              className={`flex items-center justify-between rounded border p-3 text-xs ${
+                claimToast.type === "success"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{claimToast.message}</span>
+                {claimToast.signature && (
+                  <a
+                    href={`https://solscan.io/tx/${claimToast.signature}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-emerald-300 underline hover:text-emerald-100"
+                  >
+                    View on Solscan ({claimToast.signature.slice(0, 6)}…{claimToast.signature.slice(-4)}) ↗
+                  </a>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setClaimToast(null)}
+                className="text-xs text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <Panel title="Positions">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-xs">
+              <table className="w-full min-w-[1040px] text-left text-xs">
                 <thead className="border-b border-line text-[10px] uppercase tracking-wider text-slate-500">
                   <tr>
                     {[
@@ -338,6 +454,7 @@ export function UnifiedPortfolio() {
                       "Unrealized",
                       "Realized",
                       "Exit liquidity",
+                      "Action",
                     ].map((header) => (
                       <th key={header} className="px-4 py-2.5 font-medium">
                         {header}
@@ -441,6 +558,55 @@ export function UnifiedPortfolio() {
                           {position.exitLiquidityPct == null
                             ? "—"
                             : `${position.exitLiquidityPct.toFixed(2)}% of pool`}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {position.assetClass === "prediction" ? (
+                            position.claimable ? (
+                              <button
+                                type="button"
+                                onClick={() => void claimPayout(position)}
+                                disabled={claimingKey === position.key}
+                                className="inline-flex items-center gap-1.5 rounded border border-emerald-500/50 bg-emerald-500/20 px-2.5 py-1 font-sans text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                              >
+                                {claimingKey === position.key ? (
+                                  <>
+                                    <span className="inline-block h-2 w-2 animate-spin rounded-full border-2 border-emerald-300 border-t-transparent" />
+                                    Claiming…
+                                  </>
+                                ) : (
+                                  "Claim Payout"
+                                )}
+                              </button>
+                            ) : position.marketId ? (
+                              <Link
+                                prefetch={false}
+                                href={`/predictions/${encodeURIComponent(position.marketId)}`}
+                                className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800/80 px-2.5 py-1 font-sans text-[11px] font-medium text-slate-300 hover:border-slate-600 hover:bg-slate-700/80 hover:text-bone transition-colors"
+                              >
+                                Trade / Exit →
+                              </Link>
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )
+                          ) : position.assetClass === "perpetual" ? (
+                            <Link
+                              prefetch={false}
+                              href="/perps"
+                              className="inline-flex items-center gap-1 font-sans text-[11px] text-bronze-200 hover:text-bone hover:underline"
+                            >
+                              Trade →
+                            </Link>
+                          ) : position.assetClass === "crypto_spot" ? (
+                            <Link
+                              prefetch={false}
+                              href="/spot"
+                              className="inline-flex items-center gap-1 font-sans text-[11px] text-bronze-200 hover:text-bone hover:underline"
+                            >
+                              Trade →
+                            </Link>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
                         </td>
                       </tr>
                     );

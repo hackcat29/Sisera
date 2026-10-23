@@ -107,18 +107,9 @@ export default async function PredictionsPage({
       <div className="space-y-4 p-4 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line py-3 text-[11px] text-slate-400">
           <span>
-            Powered by{" "}
-            <a
-              href="https://panta.market"
-              target="_blank"
-              rel="noreferrer"
-              className="text-bronze-300 hover:text-bone"
-            >
-              Panta
-            </a>{" "}
-            · Solana prediction markets
+            Institutional prediction markets · Solana · Primary &amp; Secondary trading
           </span>
-          <span>Live wallet trading · Cited event research · Explicit resolution checks</span>
+          <span>Live wallet trading · Instant payout claims · Cited event research</span>
         </div>
         {signedIn && (
           <details className="border border-line bg-panel">

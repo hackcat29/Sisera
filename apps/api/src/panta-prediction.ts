@@ -95,6 +95,34 @@ const PantaPrimaryBuildResponse = z.object({
   recentBlockhash: z.string().optional(),
 });
 
+const PantaClaimBuildResponse = z.object({
+  wallet: z.string().optional(),
+  marketId: z.string().optional(),
+  outcome: z.string().optional(),
+  winningShares: z.union([z.string(), z.number()]).optional(),
+  instructions: z.array(PantaInstruction),
+  derived: z.record(z.unknown()).optional(),
+  recentBlockhash: z.string().optional(),
+});
+
+export const PantaUserPosition = z.object({
+  marketId: z.string(),
+  category: z.string().optional(),
+  title: z.string().optional(),
+  images: z.array(z.string()).optional(),
+  side: z.enum(["yes", "no"]),
+  shares: z.string(),
+  availableShares: z.string().optional(),
+  price: z.union([z.string(), z.number()]).optional(),
+  currentValueUsdc: z.union([z.string(), z.number()]).optional(),
+  phase: z.string().optional(),
+  claimable: z.boolean().default(false),
+  claimed: z.boolean().default(false),
+  claimedPayoutUsdc: z.string().nullable().optional(),
+  outcome: z.string().nullable().optional(),
+});
+export type PantaUserPosition = z.infer<typeof PantaUserPosition>;
+
 type Fetcher = typeof globalThis.fetch;
 
 export const PANTA_PROGRAM_ID = "6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp";
@@ -649,6 +677,128 @@ export class PantaPredictionTradingClient {
     }
 
     return null;
+  }
+
+  async getUserPositions(wallet: string): Promise<PantaUserPosition[]> {
+    const hasCustomFetcher = this.fetcher !== globalThis.fetch;
+    if (!this.apiKey && !hasCustomFetcher) return [];
+    try {
+      const base = this.baseUrl.replace(/\/+$/, "");
+      const res = await this.fetcher(`${base}/positions/?wallet=${encodeURIComponent(wallet)}`, {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { positions?: unknown[] };
+      if (!Array.isArray(data.positions)) return [];
+      return data.positions
+        .map((p) => PantaUserPosition.safeParse(p))
+        .filter((r): r is z.SafeParseSuccess<PantaUserPosition> => r.success)
+        .map((r) => r.data);
+    } catch (error) {
+      console.warn("[panta-prediction] getUserPositions failed:", error);
+      return [];
+    }
+  }
+
+  async buildClaim(input: {
+    wallet: string;
+    marketId: string;
+  }): Promise<{
+    transaction: string;
+    wallet: string;
+    marketId: string;
+    outcome?: string | undefined;
+    winningShares?: string | undefined;
+  }> {
+    const hasCustomFetcher = this.fetcher !== globalThis.fetch;
+    if (!this.apiKey && !hasCustomFetcher) {
+      throw new TradeRejection("Panta claim service is unavailable.", 503);
+    }
+    const base = this.baseUrl.replace(/\/+$/, "");
+    let res: Response;
+    try {
+      res = await this.fetcher(`${base}/claim/build/`, {
+        method: "POST",
+        headers: { ...this.headers(), "content-type": "application/json" },
+        body: JSON.stringify({
+          wallet: input.wallet,
+          marketId: input.marketId,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (err) {
+      if (err instanceof TradeRejection) throw err;
+      throw new TradeRejection("Failed to connect to Panta claim builder.", 503);
+    }
+
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as {
+        code?: string;
+        message?: string;
+      } | null;
+      if (errBody?.code === "NOT_CLAIMABLE") {
+        throw new TradeRejection("No claimable winnings found for this wallet and market.", 422);
+      }
+      const errMsg =
+        errBody?.message || errBody?.code || "Claim transaction could not be constructed.";
+      throw new TradeRejection(errMsg, res.status === 429 ? 503 : 422);
+    }
+
+    const raw = await res.json();
+    const directTx = z.object({ transaction: z.string().min(40) }).safeParse(raw);
+    if (directTx.success) {
+      return {
+        transaction: directTx.data.transaction,
+        wallet: input.wallet,
+        marketId: input.marketId,
+      };
+    }
+
+    const buildData = PantaClaimBuildResponse.safeParse(raw);
+    if (!buildData.success) {
+      throw new TradeRejection("Invalid claim response from Panta venue.", 502);
+    }
+
+    const instructions = buildData.data.instructions.map((ix) => {
+      return new TransactionInstruction({
+        programId: new PublicKey(ix.programId),
+        keys: ix.accounts.map((acc) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable,
+        })),
+        data: Buffer.from(ix.data, "base64"),
+      });
+    });
+
+    let recentBlockhash = buildData.data.recentBlockhash;
+    if (!recentBlockhash && this.connection) {
+      const latest = await this.connection.getLatestBlockhash("confirmed");
+      recentBlockhash = latest.blockhash;
+    }
+
+    if (!recentBlockhash) {
+      throw new TradeRejection("Failed to obtain recent Solana blockhash for claim transaction.");
+    }
+
+    const message = new TransactionMessage({
+      payerKey: new PublicKey(input.wallet),
+      recentBlockhash,
+      instructions,
+    }).compileToV0Message();
+
+    const tx = new VersionedTransaction(message);
+    const txBase64 = Buffer.from(tx.serialize()).toString("base64");
+
+    return {
+      transaction: txBase64,
+      wallet: input.wallet,
+      marketId: input.marketId,
+      outcome: buildData.data.outcome,
+      winningShares:
+        buildData.data.winningShares != null ? String(buildData.data.winningShares) : undefined,
+    };
   }
 
   private headers(): Record<string, string> {

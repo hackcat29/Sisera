@@ -922,7 +922,22 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
         },
         predictionInfo: async (marketId) => {
           const market = await predictions.getMarket?.(marketId);
-          return market ? { title: market.title, imageUrl: market.imageUrl ?? null } : null;
+          if (!market) return null;
+          const yesProb = Number(market.outcomes[0]?.probability ?? 0);
+          const noProb = Number(market.outcomes[1]?.probability ?? 0);
+          const isResolved = market.status === "resolved";
+          const winnerOutcome: "yes" | "no" | null = isResolved
+            ? yesProb === 1 || yesProb > noProb
+              ? "yes"
+              : "no"
+            : null;
+          return {
+            title: market.title,
+            imageUrl: market.imageUrl ?? null,
+            status: market.status,
+            phase: market.phase,
+            winnerOutcome,
+          };
         },
       })
     : null;
@@ -2645,6 +2660,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
           marketId: z.string().regex(/^[A-Za-z0-9:_-]{5,128}$/),
           outcome: z.enum(["yes", "no"]),
           depositUsd: z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/),
+          side: z.enum(["buy", "sell"]).default("buy"),
         })
         .parse(request.body);
       try {
@@ -2666,6 +2682,7 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
               outcome: input.outcome,
               depositUsd: input.depositUsd,
               priceUsd: quote.priceUsd,
+              side: input.side,
             }),
         );
         return { data: order };
@@ -2770,6 +2787,74 @@ export async function buildApi(config: ApiConfig, dependencies: ApiDependencies 
               : null,
         })),
       );
+      return { data };
+    },
+  );
+
+  app.get(
+    "/v1/prediction-positions",
+    { preHandler: requirePermission("portfolio:read") },
+    async (request, reply) => {
+      const { wallet } = z
+        .object({ wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/) })
+        .parse(request.query);
+      const data = await predictionTrading.getUserPositions(wallet);
+      return { data };
+    },
+  );
+
+  app.post(
+    "/v1/prediction-markets/:id/claim/prepare",
+    {
+      preHandler: requirePermission("order:live:create"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const { id } = z
+        .object({ id: z.string().regex(/^[A-Za-z0-9:_-]{5,128}$/) })
+        .parse(request.params);
+      const { wallet } = z
+        .object({ wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/) })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, wallet, "solana"))) return reply;
+      const data = await predictionTrading.prepareClaim({
+        subject: principal.subject,
+        wallet,
+        marketId: id,
+      });
+      return { data };
+    },
+  );
+
+  app.post(
+    "/v1/prediction-markets/:id/claim/execute",
+    {
+      preHandler: requirePermission("order:live:create"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const principal = request.principal;
+      if (!principal?.subject.startsWith("privy:"))
+        return reply.code(403).send({ error: "account_required" });
+      const { id } = z
+        .object({ id: z.string().regex(/^[A-Za-z0-9:_-]{5,128}$/) })
+        .parse(request.params);
+      const { wallet, signedTransaction } = z
+        .object({
+          wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
+          signedTransaction: z.string().min(40).max(20000),
+        })
+        .parse(request.body);
+      if (!(await requireOwnedWallet(reply, principal.subject, wallet, "solana"))) return reply;
+      const data = await predictionTrading.executeClaim({
+        subject: principal.subject,
+        wallet,
+        marketId: id,
+        signedTransaction,
+      });
       return { data };
     },
   );

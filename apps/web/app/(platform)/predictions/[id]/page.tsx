@@ -117,8 +117,7 @@ export default async function PredictionMarketPage({
               <Link href="/predictions" className="hover:text-bone">
                 Predictions
               </Link>{" "}
-              · Powered by Panta ·{" "}
-              {[market.category, market.subcategory].filter(Boolean).join(" · ")}
+              · {[market.category, market.subcategory].filter(Boolean).join(" · ")}
             </p>
           </div>
           <h1 className="display mt-2 flex items-center gap-3 text-[28px] leading-tight text-bone">
@@ -304,7 +303,22 @@ export default async function PredictionMarketPage({
 
         <aside className="space-y-4 self-start lg:sticky lg:top-4">
           {signedIn ? (
-            <PredictionTradeTicket marketId={market.id} marketTitle={market.title} />
+            <PredictionTradeTicket
+              marketId={market.id}
+              marketTitle={market.title}
+              marketStatus={market.status}
+              marketPhase={market.phase}
+              isGraduated={market.isGraduated}
+              resolvedWinner={
+                market.status === "resolved"
+                  ? yes === 1
+                    ? "yes"
+                    : no === 1
+                      ? "no"
+                      : null
+                  : null
+              }
+            />
           ) : (
             <SignInToTrade
               label="this market"

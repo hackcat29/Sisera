@@ -31,9 +31,17 @@ type ExecutedTrade = {
 export function PredictionTradeTicket({
   marketId,
   marketTitle,
+  marketStatus,
+  marketPhase,
+  isGraduated,
+  resolvedWinner,
 }: {
   marketId: string;
-  marketTitle?: string;
+  marketTitle?: string | undefined;
+  marketStatus?: "open" | "closed" | "resolved" | undefined;
+  marketPhase?: "primary" | "secondary" | undefined;
+  isGraduated?: boolean | undefined;
+  resolvedWinner?: "yes" | "no" | null | undefined;
 }) {
   const liveAvailable = useLiveCapability("predictions");
   const { authenticated, user } = usePrivy();
@@ -46,6 +54,7 @@ export function PredictionTradeTicket({
     wallet?.accounts.find((item) => item.address === linkedAddress) ?? wallet?.accounts[0];
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
   const [mode, setMode] = useState<"paper" | "live">("live");
+  const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [working, setWorking] = useState(false);
@@ -53,6 +62,76 @@ export function PredictionTradeTicket({
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [executedTrade, setExecutedTrade] = useState<ExecutedTrade | null>(null);
   const paperRequestId = useRef<string | null>(null);
+
+  const [claimStatus, setClaimStatus] = useState<
+    "idle" | "preparing" | "signing" | "confirming" | "success" | "error"
+  >("idle");
+  const [claimMessage, setClaimMessage] = useState<string | null>(null);
+  const [claimSignature, setClaimSignature] = useState<string | null>(null);
+
+  async function claimWinnings() {
+    if (!wallet || !account) {
+      setClaimMessage("Connect your Solana wallet to claim payouts.");
+      return;
+    }
+    const signer = wallet.features["solana:signTransaction"];
+    if (!signer) {
+      setClaimMessage("Your connected wallet cannot sign Solana transactions.");
+      return;
+    }
+    setClaimStatus("preparing");
+    setClaimMessage(null);
+    setClaimSignature(null);
+
+    try {
+      const prepRes = await fetch("/api/prediction-claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "prepare", wallet: account.address, marketId }),
+      });
+      const prepData = await prepRes.json();
+      if (!prepRes.ok) {
+        throw new Error(prepData.message ?? "Could not build claim transaction.");
+      }
+
+      setClaimStatus("signing");
+      const bytes = Uint8Array.from(atob(prepData.data.transaction), (c) => c.charCodeAt(0));
+      const [signed] = await signer.signTransaction({
+        account,
+        transaction: bytes,
+        chain: "solana:mainnet",
+      });
+      if (!signed) throw new Error("Wallet declined the claim transaction signature.");
+
+      setClaimStatus("confirming");
+      const signedTransaction = btoa(
+        Array.from(signed.signedTransaction, (byte) => String.fromCharCode(byte)).join(""),
+      );
+
+      const execRes = await fetch("/api/prediction-claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "execute",
+          wallet: account.address,
+          marketId,
+          signedTransaction,
+        }),
+      });
+      const execData = await execRes.json();
+      if (!execRes.ok) {
+        throw new Error(execData.message ?? "Claim execution failed on Solana.");
+      }
+
+      setClaimStatus("success");
+      setClaimSignature(execData.data?.signature ?? null);
+      setClaimMessage("Winnings successfully claimed and deposited to your wallet!");
+      window.dispatchEvent(new Event("sisera:prediction-claimed"));
+    } catch (err) {
+      setClaimStatus("error");
+      setClaimMessage(err instanceof Error ? err.message : "Claim failed.");
+    }
+  }
 
   async function submit() {
     setWorking(true);
@@ -75,6 +154,7 @@ export function PredictionTradeTicket({
             marketId,
             outcome,
             depositUsd: amount,
+            side,
           }),
         });
         const payload = await response.json();
@@ -91,7 +171,7 @@ export function PredictionTradeTicket({
           signature: null,
         });
         setMessage(
-          `Paper ${outcome.toUpperCase()} filled at $${payload.data.fillPriceUsd} · ${contracts.toFixed(2)} contracts · $${payload.data.feeUsd} fee.`,
+          `Paper ${side.toUpperCase()} ${outcome.toUpperCase()} filled at $${payload.data.fillPriceUsd} · ${contracts.toFixed(2)} contracts · $${payload.data.feeUsd} fee.`,
         );
         paperRequestId.current = null;
         setAmount("");
@@ -184,87 +264,200 @@ export function PredictionTradeTicket({
     }
   }
 
+  const isResolved = marketStatus === "resolved";
+
   return (
     <section className="border border-line bg-panel p-5 text-xs">
-      <h2 className="mb-4 text-base font-semibold text-bone">Trade this event</h2>
-      <p className="mb-3 text-[11px] text-slate-500">Powered by Panta · Solana · USDC</p>
-      <div className="mt-2 grid grid-cols-2 gap-1">
-        {(["live", "paper"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            disabled={option === "live" && !liveAvailable}
-            onClick={() => {
-              setMode(option);
-              setPrepared(null);
-              setMessage(null);
-            }}
-            className={`rounded border px-2 py-2 uppercase disabled:opacity-40 ${mode === option ? "border-bronze-400/40 bg-bronze-400/10 text-bronze-300" : "border-line text-slate-500"}`}
-          >
-            {option}
-          </button>
-        ))}
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-base font-semibold text-bone">
+          {isResolved ? "Market Settlement" : "Trade this event"}
+        </h2>
+        {marketPhase === "secondary" && (
+          <span className="rounded border border-purple-500/40 bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300 uppercase">
+            Secondary CLOB
+          </span>
+        )}
       </div>
-      {!liveAvailable && mode === "live" && (
-        <p className="mt-2 text-amber-300">
-          Live orders are currently unavailable. You can still practice a trade.
-        </p>
-      )}
-      <div className="mt-2 grid grid-cols-2 gap-1">
-        {(["yes", "no"] as const).map((side) => (
+      <p className="mb-3 text-[11px] text-slate-500">
+        Institutional prediction markets · Solana · USDC
+      </p>
+
+      {isResolved ? (
+        <div className="space-y-3">
+          <div className="rounded border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-slate-200">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 font-semibold text-emerald-400">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Event Concluded &amp; Resolved
+              </span>
+              {resolvedWinner && (
+                <span className="rounded border border-emerald-500/40 bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] text-emerald-200 uppercase font-semibold">
+                  Outcome: {resolvedWinner}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-slate-300 text-[11px] leading-relaxed">
+              This prediction event has ended. If you hold winning shares, you can claim your 1.00 USDC payout directly to your connected wallet.
+            </p>
+          </div>
+
           <button
-            key={side}
             type="button"
-            onClick={() => {
-              setOutcome(side);
-              setPrepared(null);
-              paperRequestId.current = null;
-            }}
-            className={`rounded border px-2 py-2 uppercase ${outcome === side ? "border-bronze-400/40 bg-bronze-400/10 text-bronze-300" : "border-line text-slate-500"}`}
+            onClick={() => void claimWinnings()}
+            disabled={
+              claimStatus === "preparing" ||
+              claimStatus === "signing" ||
+              claimStatus === "confirming" ||
+              !authenticated ||
+              !account
+            }
+            className="h-10 w-full rounded border border-emerald-400/50 bg-emerald-500/20 text-emerald-200 font-semibold hover:bg-emerald-500/30 transition-all disabled:opacity-40"
           >
-            {side}
+            {claimStatus === "preparing"
+              ? "Building claim transaction…"
+              : claimStatus === "signing"
+                ? "Approve in wallet…"
+                : claimStatus === "confirming"
+                  ? "Confirming on Solana…"
+                  : claimStatus === "success"
+                    ? "Payout Claimed ✓"
+                    : "Claim Winnings to Wallet"}
           </button>
-        ))}
-      </div>
-      <label className="mt-2 block text-slate-400">
-        Deposit · USDC
-        <input
-          value={amount}
-          onChange={(event) => {
-            setAmount(event.target.value);
-            setPrepared(null);
-            paperRequestId.current = null;
-          }}
-          inputMode="decimal"
-          placeholder="5.00"
-          className="mt-1 h-9 w-full rounded border border-line bg-ink-raised px-2 font-mono text-white"
-        />
-      </label>
-      {prepared && (
-        <p className="mt-2 text-amber-200">
-          Review {outcome.toUpperCase()} at about ${prepared.priceUsd.toFixed(3)} per contract.
-          {Number(prepared.feeUsd) > 0
-            ? ` Sisera fee $${prepared.feeUsd}, paid with the order.`
-            : ""}{" "}
-          Wallet signature opens an order; a fill is not guaranteed.
-        </p>
+
+          {claimMessage && (
+            <div
+              className={`rounded border p-2.5 text-xs ${
+                claimStatus === "success"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+              }`}
+            >
+              <p>{claimMessage}</p>
+              {claimSignature && (
+                <p className="mt-1 font-mono text-[11px]">
+                  <a
+                    href={`https://solscan.io/tx/${claimSignature}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-300 underline hover:text-emerald-200"
+                  >
+                    View on Solscan ({claimSignature.slice(0, 8)}…{claimSignature.slice(-6)}) ↗
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            {(["live", "paper"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                disabled={option === "live" && !liveAvailable}
+                onClick={() => {
+                  setMode(option);
+                  setPrepared(null);
+                  setMessage(null);
+                }}
+                className={`rounded border px-2 py-2 uppercase disabled:opacity-40 ${mode === option ? "border-bronze-400/40 bg-bronze-400/10 text-bronze-300" : "border-line text-slate-500"}`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
+          {(marketPhase === "secondary" || mode === "paper") && (
+            <div className="mt-2 grid grid-cols-2 gap-1">
+              {(["buy", "sell"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setSide(s);
+                    setPrepared(null);
+                    paperRequestId.current = null;
+                  }}
+                  className={`rounded border px-2 py-1.5 uppercase font-medium text-[11px] ${
+                    side === s
+                      ? s === "buy"
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+                        : "border-rose-500/50 bg-rose-500/15 text-rose-300"
+                      : "border-line text-slate-500"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!liveAvailable && mode === "live" && (
+            <p className="mt-2 text-amber-300">
+              Live orders are currently unavailable. You can still practice a trade.
+            </p>
+          )}
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            {(["yes", "no"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setOutcome(s);
+                  setPrepared(null);
+                  paperRequestId.current = null;
+                }}
+                className={`rounded border px-2 py-2 uppercase ${outcome === s ? "border-bronze-400/40 bg-bronze-400/10 text-bronze-300" : "border-line text-slate-500"}`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <label className="mt-2 block text-slate-400">
+            Deposit · USDC
+            <input
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                setPrepared(null);
+                paperRequestId.current = null;
+              }}
+              inputMode="decimal"
+              placeholder="5.00"
+              className="mt-1 h-9 w-full rounded border border-line bg-ink-raised px-2 font-mono text-white"
+            />
+          </label>
+          {prepared && (
+            <p className="mt-2 text-amber-200">
+              Review {outcome.toUpperCase()} at about ${prepared.priceUsd.toFixed(3)} per contract.
+              {Number(prepared.feeUsd) > 0
+                ? ` Sisera fee $${prepared.feeUsd}, paid with the order.`
+                : ""}{" "}
+              Wallet signature opens an order; a fill is not guaranteed.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={
+              working ||
+              !authenticated ||
+              !amount ||
+              (mode === "live" && (!account || !liveAvailable))
+            }
+            className="mt-2 h-9 w-full rounded border border-bronze-400/40 bg-bronze-400/10 text-bronze-200 disabled:opacity-40"
+          >
+            {working
+              ? "Working…"
+              : mode === "paper"
+                ? `${side === "buy" ? "Place paper order" : "Sell paper contracts"}`
+                : prepared
+                  ? "Sign and submit"
+                  : "Review live order"}
+          </button>
+        </>
       )}
-      <button
-        type="button"
-        onClick={() => void submit()}
-        disabled={
-          working || !authenticated || !amount || (mode === "live" && (!account || !liveAvailable))
-        }
-        className="mt-2 h-9 w-full rounded border border-bronze-400/40 bg-bronze-400/10 text-bronze-200 disabled:opacity-40"
-      >
-        {working
-          ? "Working…"
-          : mode === "paper"
-            ? "Place paper order"
-            : prepared
-              ? "Sign and submit"
-              : "Review live order"}
-      </button>
       {mode === "live" && !account && (
         <p className="mt-2 text-slate-500">
           {linkedAddress

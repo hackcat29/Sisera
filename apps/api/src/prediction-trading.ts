@@ -224,4 +224,92 @@ export class PredictionTradingService {
   async orderStatus(orderPubkey: string) {
     return this.panta.orderStatus(orderPubkey);
   }
+
+  async getUserPositions(wallet: string) {
+    try {
+      new PublicKey(wallet);
+    } catch {
+      return [];
+    }
+    return this.panta.getUserPositions(wallet);
+  }
+
+  async prepareClaim(input: { subject: string; wallet: string; marketId: string }) {
+    try {
+      new PublicKey(input.wallet);
+    } catch {
+      throw new TradeRejection("Enter a valid Solana wallet address.");
+    }
+    if (this.privy) {
+      const owner = await this.privy.getUserByWalletAddress(input.wallet);
+      if (!owner || `privy:${owner.id}` !== input.subject) {
+        throw new TradeRejection("Connect this Solana wallet to your Sisera account first.", 403);
+      }
+    }
+    return this.panta.buildClaim({
+      wallet: input.wallet,
+      marketId: input.marketId,
+    });
+  }
+
+  async executeClaim(input: {
+    subject: string;
+    wallet: string;
+    marketId: string;
+    signedTransaction: string;
+  }) {
+    try {
+      new PublicKey(input.wallet);
+    } catch {
+      throw new TradeRejection("Enter a valid Solana wallet address.");
+    }
+    let transaction: VersionedTransaction;
+    try {
+      transaction = VersionedTransaction.deserialize(Buffer.from(input.signedTransaction, "base64"));
+    } catch {
+      throw new TradeRejection("Invalid signed Solana transaction format.", 400);
+    }
+
+    let signature: string;
+    try {
+      signature = await this.connection.sendRawTransaction(transaction.serialize(), {
+        maxRetries: 3,
+        skipPreflight: false,
+      });
+    } catch (sendError) {
+      let rawMsg =
+        sendError instanceof Error
+          ? sendError.message
+          : "Solana preflight transaction simulation failed";
+      if (sendError instanceof SendTransactionError) {
+        const logs = await sendError.getLogs(this.connection).catch(() => sendError.logs);
+        if (logs && logs.length > 0) {
+          console.error("[prediction-claim] simulation logs:", logs);
+          const anchorError = logs.find(
+            (l) => l.includes("Error Message:") || l.includes("AnchorError"),
+          );
+          if (anchorError) {
+            const cleaned = anchorError.replace(/^Program log:\s*/, "").trim();
+            rawMsg = `${rawMsg} (${cleaned})`;
+          }
+        }
+      }
+      throw new TradeRejection(`Solana claim transaction rejected: ${rawMsg}`, 422);
+    }
+
+    // Wait for confirmation
+    try {
+      await Promise.race([
+        this.connection.confirmTransaction(signature, "confirmed"),
+        new Promise<{ value: { err: null } }>((resolve) =>
+          setTimeout(() => resolve({ value: { err: null } }), 10_000),
+        ),
+      ]);
+    } catch (err) {
+      console.warn("[prediction-claim] confirmation timeout for signature:", signature, err);
+    }
+
+    return { status: "confirmed", signature, marketId: input.marketId };
+  }
 }
+

@@ -32,8 +32,14 @@ export type MarkSources = {
     marketId: string,
     outcome: "yes" | "no",
   ) => Promise<{ price: number; observedAt: string } | null>;
-  /** The question and picture of a prediction market, for showing a position by name. */
-  predictionInfo?: (marketId: string) => Promise<{ title: string; imageUrl: string | null } | null>;
+  /** The question, picture, status, and resolution details of a prediction market. */
+  predictionInfo?: (marketId: string) => Promise<{
+    title: string;
+    imageUrl: string | null;
+    status?: string | undefined;
+    phase?: string | undefined;
+    winnerOutcome?: "yes" | "no" | null | undefined;
+  } | null>;
 };
 
 const ASSET_CLASS_BY_KIND: Record<CatalogAsset["kind"], AssetClassKey> = {
@@ -416,6 +422,11 @@ export class PortfolioService {
         const prediction = position.instrumentKey.startsWith("prediction:")
           ? predictionInfo.get(marketId ?? "")
           : null;
+        const isResolved = prediction?.status === "resolved";
+        const isWinner =
+          isResolved &&
+          prediction?.winnerOutcome != null &&
+          prediction.winnerOutcome === (outcome === "no" ? "no" : "yes");
         return {
           ...position,
           imageUrl: prediction?.imageUrl ?? images.get(position.instrumentKey) ?? null,
@@ -424,6 +435,10 @@ export class PortfolioService {
                 title: prediction?.title ?? null,
                 marketId: marketId ?? null,
                 outcome: outcome === "no" ? "no" : "yes",
+                status: prediction?.status ?? null,
+                phase: prediction?.phase ?? null,
+                claimable: isWinner && Number(position.quantity) > 0,
+                winnerOutcome: prediction?.winnerOutcome ?? null,
               }
             : {}),
         };
