@@ -149,4 +149,38 @@ describe("PantaPredictionTradingClient", () => {
     expect(prepared.order.orderPubkey).toBeDefined();
     expect(prepared.priceUsd).toBe(0.6);
   });
+
+  it("quotes correctly with live Panta schema (status: primary, primaryYesPrice, endTime)", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes("/markets/")) {
+        return new Response(
+          JSON.stringify({
+            marketId: "7y45RD53QHg7tfcbeZQt76NRPkhXK6CVN3e3K9d9oCS6",
+            status: "primary",
+            phase: "primary",
+            endTime: Math.floor(Date.now() / 1000) + 86400,
+            resolutionRule: "Resolves according to volume",
+            primaryYesPrice: "0.500084",
+            primaryNoPrice: "0.499916",
+            virtualSolReserves: "600100221",
+            virtualYesShares: "599899779",
+          }),
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const client = new PantaPredictionTradingClient(
+      "https://live-api.panta.market/api/v1",
+      "test-key",
+      fetcher as typeof fetch,
+    );
+
+    const quoteYes = await client.quote("7y45RD53QHg7tfcbeZQt76NRPkhXK6CVN3e3K9d9oCS6", true);
+    expect(quoteYes.priceUsd).toBe("0.500084");
+
+    const quoteNo = await client.quote("7y45RD53QHg7tfcbeZQt76NRPkhXK6CVN3e3K9d9oCS6", false);
+    expect(quoteNo.priceUsd).toBe("0.499916");
+  });
 });
+

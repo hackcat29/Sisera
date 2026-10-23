@@ -14,9 +14,24 @@ const PantaMarketResponse = z.object({
   marketId: z.string().optional(),
   id: z.string().optional(),
   status: z.string().optional(),
+  phase: z.string().optional(),
+  resolved: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  isResolved: z.boolean().optional(),
+  isCancelled: z.boolean().optional(),
   closeTime: z.number().optional(),
+  endTime: z.number().optional(),
+  resolutionTime: z.number().optional(),
   rulesPrimary: z.string().optional(),
   resolutionRules: z.string().optional(),
+  resolutionRule: z.string().optional(),
+  yesPrice: z.union([z.number(), z.string()]).optional(),
+  noPrice: z.union([z.number(), z.string()]).optional(),
+  primaryYesPrice: z.union([z.number(), z.string()]).optional(),
+  primaryNoPrice: z.union([z.number(), z.string()]).optional(),
+  lastYesPrice: z.union([z.number(), z.string()]).optional(),
+  virtualSolReserves: z.union([z.number(), z.string()]).optional(),
+  virtualYesShares: z.union([z.number(), z.string()]).optional(),
   pricing: z
     .object({
       buyYesPriceUsd: z.number().optional(),
@@ -82,7 +97,17 @@ export class PantaPredictionTradingClient {
             const m = parsed.data;
             const mid = m.marketId ?? m.id ?? marketId;
             const status = (m.status ?? "open").toLowerCase();
-            const isActive = status === "open" || status === "active" || status === "trading";
+            const phase = (m.phase ?? "").toLowerCase();
+            const isClosed =
+              m.resolved === true ||
+              m.isResolved === true ||
+              m.isCancelled === true ||
+              ["closed", "resolved", "cancelled"].includes(status);
+            const isActive =
+              !isClosed &&
+              (m.isActive !== false ||
+                ["open", "active", "trading", "primary", "secondary"].includes(status) ||
+                ["primary", "secondary"].includes(phase));
             let tradingActive = true;
             if (statusResponse?.ok) {
               const statusData = PantaTradingStatus.safeParse(await statusResponse.json());
@@ -94,10 +119,11 @@ export class PantaPredictionTradingClient {
             if (mid !== marketId || !isActive || !tradingActive) {
               throw new TradeRejection("This prediction market is not open for trading.");
             }
-            if (Number.isFinite(m.closeTime) && (m.closeTime as number) * 1000 <= Date.now()) {
+            const closeSec = m.closeTime ?? m.resolutionTime ?? m.endTime;
+            if (Number.isFinite(closeSec) && (closeSec as number) * 1000 <= Date.now()) {
               throw new TradeRejection("This prediction market has closed.");
             }
-            const rules = m.rulesPrimary ?? m.resolutionRules;
+            const rules = m.rulesPrimary ?? m.resolutionRules ?? m.resolutionRule;
             if (rules !== undefined && !rules.trim()) {
               throw new TradeRejection("Resolution rules are unavailable.");
             }
@@ -113,6 +139,29 @@ export class PantaPredictionTradingClient {
                 price = target / 1_000_000;
               }
             }
+            if (price === null) {
+              const parseNum = (val: unknown) => {
+                if (val == null) return null;
+                const n = Number(val);
+                return Number.isFinite(n) && n > 0 ? n : null;
+              };
+              const targetVal = isYes
+                ? (m.primaryYesPrice ?? m.yesPrice)
+                : (m.primaryNoPrice ?? m.noPrice);
+              const targetNum = parseNum(targetVal);
+              if (targetNum !== null) {
+                price = targetNum > 1 ? targetNum / 1_000_000 : targetNum;
+              } else if (m.virtualSolReserves != null && m.virtualYesShares != null) {
+                const sol = Number(m.virtualSolReserves);
+                const yesShares = Number(m.virtualYesShares);
+                const total = sol + yesShares;
+                if (total > 0) {
+                  const rawYes = sol / total;
+                  const yes = Math.min(Math.max(rawYes, 0.01), 0.99);
+                  price = isYes ? yes : 1 - yes;
+                }
+              }
+            }
 
             if (price === null || price <= 0 || price >= 1) {
               throw new TradeRejection("This outcome has no valid current buy price.");
@@ -121,18 +170,18 @@ export class PantaPredictionTradingClient {
             return {
               marketId,
               priceUsd: price.toFixed(6),
-              closesAt: Number.isFinite(m.closeTime)
-                ? new Date((m.closeTime as number) * 1000).toISOString()
+              closesAt: Number.isFinite(closeSec)
+                ? new Date((closeSec as number) * 1000).toISOString()
                 : new Date(Date.now() + 86400 * 1000).toISOString(),
             };
           }
         }
       } catch (error) {
-        if (error instanceof TradeRejection) throw error;
-        // If not TradeRejection and no connection fallback, fail with 503
         if (!this.connection) {
+          if (error instanceof TradeRejection) throw error;
           throw new TradeRejection("Panta prediction market is unavailable.", 503);
         }
+        // Connection available: fall through to on-chain Solana RPC quote fallback
       }
     }
 

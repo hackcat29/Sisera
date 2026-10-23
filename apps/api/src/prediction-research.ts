@@ -126,7 +126,58 @@ export async function researchPredictionMarket(
           if (!response.ok) throw new Error("Book unavailable");
           return Book.parse(await response.json());
         })
-      : Promise.resolve(null),
+      : nativePanta && market.pricingAvailable !== false && panta
+        ? fetcher(
+            `${panta.baseUrl.replace(/\/$/, "")}/markets/${encodeURIComponent(market.id)}/`,
+            {
+              headers: {
+                accept: "application/json",
+                ...(panta.apiKey ? { "x-api-key": panta.apiKey } : {}),
+              },
+              signal: AbortSignal.timeout(8000),
+            },
+          ).then(async (response) => {
+            if (!response.ok) throw new Error("Panta book unavailable");
+            const raw = (await response.json()) as Record<string, unknown>;
+            const parseNum = (v: unknown) => {
+              if (v == null) return null;
+              const n = Number(v);
+              return Number.isFinite(n) && n > 0 ? n : null;
+            };
+            const yesVal =
+              parseNum(raw.primaryYesPrice) ??
+              parseNum(raw.yesPrice) ??
+              (raw.pricing && typeof raw.pricing === "object"
+                ? parseNum((raw.pricing as Record<string, unknown>).yes)
+                : null);
+            const p = yesVal != null && yesVal > 0 && yesVal < 1 ? yesVal : current;
+            if (!Number.isFinite(p) || p <= 0 || p >= 1) return null;
+            const spreadBps = Number(raw.currentRoyaltyBps ?? 100);
+            const halfSpread = Math.max(0.002, p * (spreadBps / 20_000));
+            const bestBid = Math.max(0.01, p - halfSpread);
+            const bestAsk = Math.min(0.99, p + halfSpread);
+            const solReserves = Number(raw.virtualSolReserves ?? 0);
+            const yesShares = Number(raw.virtualYesShares ?? 0);
+            const bidDepth =
+              solReserves > 0
+                ? solReserves / 1_000_000
+                : raw.totalVolumeUsdc
+                  ? Number(raw.totalVolumeUsdc)
+                  : 500;
+            const askDepth = yesShares > 0 ? yesShares / 1_000_000 : bidDepth;
+            const lastTradePrice = raw.lastYesPrice
+              ? (Number(raw.lastYesPrice) > 1
+                  ? Number(raw.lastYesPrice) / 1_000_000_000
+                  : Number(raw.lastYesPrice)
+                ).toFixed(4)
+              : p.toFixed(4);
+            return {
+              bids: [{ price: bestBid.toFixed(4), size: (bidDepth / bestBid).toFixed(2) }],
+              asks: [{ price: bestAsk.toFixed(4), size: (askDepth / bestAsk).toFixed(2) }],
+              last_trade_price: lastTradePrice,
+            };
+          })
+        : Promise.resolve(null),
   ]);
   const history =
     historyResult.status === "fulfilled"
@@ -319,7 +370,7 @@ export async function researchPredictionMarket(
     activity,
     sources: [
       market.quality.source,
-      ...(history.length || book ? ["polymarket-clob"] : []),
+      ...(history.length || book ? [nativePanta ? "panta-orderbook" : "polymarket-clob"] : []),
       ...(activity ? ["panta-trade-tape"] : []),
       ...(underlying ? ["binance-spot"] : []),
     ],

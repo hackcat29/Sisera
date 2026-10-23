@@ -91,6 +91,37 @@ describe("prediction evidence and measures", () => {
     expect(r.orderBook).toBeNull();
     expect(r.activity).toMatchObject({ trades: 2, wallets: 2, sampleLimit: 200 });
   });
+  it("builds Panta orderbook and bonding curve depth for native markets when pricing is available", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (url) => {
+      const u = String(url);
+      if (u.includes("/trades/")) {
+        return Response.json({ items: [] });
+      }
+      if (u.includes("/markets/market123/")) {
+        return Response.json({
+          marketId: "market123",
+          primaryYesPrice: "0.520000",
+          primaryNoPrice: "0.480000",
+          virtualSolReserves: "500000000",
+          virtualYesShares: "500000000",
+          currentRoyaltyBps: "200",
+          lastYesPrice: "520000000",
+        });
+      }
+      return Response.json({});
+    });
+    const r = await researchPredictionMarket(
+      market({ underlyingProvider: "panta", pricingAvailable: true }),
+      [],
+      fetcher,
+      { baseUrl: "https://live-api.panta.market/api/v1", apiKey: "test" },
+    );
+    expect(r.orderBook).not.toBeNull();
+    expect(r.orderBook?.lastTrade).toBe(0.52);
+    expect(r.orderBook?.bestBid).toBeCloseTo(0.5148);
+    expect(r.orderBook?.bestAsk).toBeCloseTo(0.5252);
+    expect(r.sources).toContain("panta-orderbook");
+  });
   it("parses the actual price threshold without mistaking years for strikes", () => {
     expect(
       parseStrikeMarket(market({ title: "Will Bitcoin exceed $120k in 2026?" })),
