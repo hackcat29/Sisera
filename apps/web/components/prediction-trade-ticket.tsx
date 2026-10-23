@@ -2,8 +2,10 @@
 
 import { usePrivy } from "@privy-io/react-auth";
 import { useSolanaStandardWallets } from "@privy-io/react-auth/solana";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { getPrivySolanaAddress } from "../lib/privy-identity";
+import { PnlShareButton } from "./pnl-share";
 import { useLiveCapability } from "./use-live-capability";
 
 type Prepared = {
@@ -17,7 +19,22 @@ type Prepared = {
   feeUsd?: string;
 };
 
-export function PredictionTradeTicket({ marketId }: { marketId: string }) {
+type ExecutedTrade = {
+  mode: "live" | "paper";
+  outcome: "yes" | "no";
+  contracts: number;
+  entryPx: number;
+  amountUsd: number;
+  signature?: string | null;
+};
+
+export function PredictionTradeTicket({
+  marketId,
+  marketTitle,
+}: {
+  marketId: string;
+  marketTitle?: string;
+}) {
   const liveAvailable = useLiveCapability("predictions");
   const { authenticated, user } = usePrivy();
   const { wallets } = useSolanaStandardWallets();
@@ -34,12 +51,14 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
+  const [executedTrade, setExecutedTrade] = useState<ExecutedTrade | null>(null);
   const paperRequestId = useRef<string | null>(null);
 
   async function submit() {
     setWorking(true);
     setMessage(null);
     setTxSignature(null);
+    setExecutedTrade(null);
     try {
       if (!authenticated) throw new Error("Sign in to trade prediction markets.");
       if (mode === "live" && !liveAvailable) throw new Error("Prediction live trading is paused.");
@@ -60,8 +79,19 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "Paper order could not be confirmed.");
+        const fillPriceUsd = Number(payload.data.fillPriceUsd);
+        const contracts = Number(payload.data.contracts);
+        const depositUsd = Number(amount);
+        setExecutedTrade({
+          mode: "paper",
+          outcome,
+          contracts,
+          entryPx: fillPriceUsd,
+          amountUsd: depositUsd,
+          signature: null,
+        });
         setMessage(
-          `Paper ${outcome.toUpperCase()} filled at $${payload.data.fillPriceUsd} · ${Number(payload.data.contracts).toFixed(2)} contracts · $${payload.data.feeUsd} fee.`,
+          `Paper ${outcome.toUpperCase()} filled at $${payload.data.fillPriceUsd} · ${contracts.toFixed(2)} contracts · $${payload.data.feeUsd} fee.`,
         );
         paperRequestId.current = null;
         setAmount("");
@@ -97,7 +127,18 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
         if (!response.ok) throw new Error(payload.message ?? "Prediction order submission failed.");
         const sig = payload.data?.signature;
         if (sig) setTxSignature(sig);
-        if (payload.data?.status === "submitted" || sig) {
+        if (payload.data?.status === "submitted" || payload.data?.status === "confirmed" || sig) {
+          const entryPx = prepared.priceUsd;
+          const depositUsd = Number(amount) || (entryPx > 0 ? entryPx : 0);
+          const contracts = entryPx > 0 ? depositUsd / entryPx : 0;
+          setExecutedTrade({
+            mode: "live",
+            outcome,
+            contracts,
+            entryPx,
+            amountUsd: depositUsd,
+            signature: sig ?? null,
+          });
           setMessage(
             sig
               ? "Order submitted on Solana. Confirmation is in progress."
@@ -231,7 +272,77 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
             : "Add a Solana wallet to trade live."}
         </p>
       )}
-      {message && (
+      {executedTrade ? (
+        <div className="mt-3 rounded border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 font-semibold text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              {executedTrade.mode === "live" ? "Trade Confirmed" : "Paper Order Filled"}
+            </span>
+            <span className="rounded border border-line bg-ink-raised px-2 py-0.5 font-mono text-[10px] text-slate-200 uppercase font-semibold">
+              {executedTrade.outcome}
+            </span>
+          </div>
+
+          <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-line/40 pt-2 text-[11px]">
+            <div>
+              <span className="text-slate-400">Contracts:</span>{" "}
+              <span className="font-mono text-bone font-medium">
+                {executedTrade.contracts.toFixed(2)}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400">Price:</span>{" "}
+              <span className="font-mono text-bone font-medium">
+                ${executedTrade.entryPx.toFixed(3)}
+              </span>
+            </div>
+            <div className="col-span-2">
+              <span className="text-slate-400">Deposit:</span>{" "}
+              <span className="font-mono text-bone font-medium">
+                ${executedTrade.amountUsd.toFixed(2)} USDC
+              </span>
+            </div>
+            {executedTrade.signature && (
+              <div className="col-span-2 pt-0.5">
+                <a
+                  href={`https://solscan.io/tx/${executedTrade.signature}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-[11px] text-bronze-300 underline hover:text-bronze-200"
+                >
+                  View on Solscan ({executedTrade.signature.slice(0, 8)}…
+                  {executedTrade.signature.slice(-6)}) ↗
+                </a>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 border-t border-line/40 pt-2.5">
+            <PnlShareButton
+              card={{
+                coin: "Prediction",
+                market: "prediction",
+                title: marketTitle ?? "Prediction market",
+                outcome: executedTrade.outcome,
+                side: "long",
+                leverage: 1,
+                roePct: 0,
+                pnlUsd: 0,
+                entryPx: executedTrade.entryPx,
+                markPx: executedTrade.entryPx,
+              }}
+              className="w-full justify-center py-2 text-xs font-medium border-bronze-400/50 bg-bronze-400/20 text-bronze-200 hover:bg-bronze-400/30"
+            />
+            <Link
+              href="/portfolio"
+              className="w-full inline-flex items-center justify-center gap-1 rounded border border-line bg-ink-raised py-2 text-center text-xs font-medium text-slate-300 hover:border-slate-400 hover:text-white"
+            >
+              View in Portfolio →
+            </Link>
+          </div>
+        </div>
+      ) : message ? (
         <div className="mt-3 rounded border border-line bg-ink-raised p-2.5 text-xs text-slate-300">
           <p>{message}</p>
           {txSignature && (
@@ -247,7 +358,7 @@ export function PredictionTradeTicket({ marketId }: { marketId: string }) {
             </p>
           )}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

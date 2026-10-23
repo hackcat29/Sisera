@@ -35,26 +35,57 @@ type Position = {
   outcome?: "yes" | "no";
 };
 /**
- * A shareable PnL card for a live prediction position, from its average price and the market's
- * current price. Null when the market has no current price.
+ * A shareable PnL card for a prediction position, from its average price and the market's
+ * current price. Falls back to entry price if the market has not yet reported a mark price.
  */
 function predictionCard(position: Position): PnlCardInput | null {
-  if (position.assetClass !== "prediction" || !position.outcome) return null;
+  if (position.assetClass !== "prediction") return null;
   const entry = Number(position.averageCostUsd);
-  const mark = Number(position.markPriceUsd);
-  if (!(entry > 0) || !(mark >= 0) || position.markPriceUsd == null) return null;
+  if (!(entry > 0)) return null;
+  const outcome = position.outcome ?? (position.instrumentKey.endsWith(":no") ? "no" : "yes");
+  const mark =
+    position.markPriceUsd != null && Number(position.markPriceUsd) >= 0
+      ? Number(position.markPriceUsd)
+      : entry;
+  const pnl =
+    position.unrealizedPnlUsd != null
+      ? Number(position.unrealizedPnlUsd)
+      : (mark - entry) * Number(position.quantity);
   return {
     coin: "Prediction",
     market: "prediction",
     title: position.title ?? position.symbol,
-    outcome: position.outcome,
+    outcome,
     side: "long",
     leverage: 1,
-    roePct: (mark / entry - 1) * 100,
-    pnlUsd: Number(position.unrealizedPnlUsd ?? (mark - entry) * Number(position.quantity)),
+    roePct: entry > 0 ? (mark / entry - 1) * 100 : 0,
+    pnlUsd: pnl,
     entryPx: entry,
     markPx: mark,
   };
+}
+
+function positionPnlCard(position: Position): PnlCardInput | null {
+  if (position.assetClass === "prediction") {
+    return predictionCard(position);
+  }
+  if (position.assetClass === "perpetual") {
+    const entry = Number(position.averageCostUsd);
+    const mark = Number(position.markPriceUsd);
+    if (!(entry > 0) || !(mark > 0)) return null;
+    const long = Number(position.quantity) >= 0;
+    return {
+      coin: position.symbol.replace(/-PERP$/, ""),
+      market: "perp",
+      side: long ? "long" : "short",
+      leverage: 1,
+      roePct: (mark / entry - 1) * 100 * (long ? 1 : -1),
+      pnlUsd: Number(position.unrealizedPnlUsd ?? 0),
+      entryPx: entry,
+      markPx: mark,
+    };
+  }
+  return null;
 }
 
 /** A position's logo: the catalog's for Solana assets, Hyperliquid's icon for its markets. */
@@ -315,94 +346,105 @@ export function UnifiedPortfolio() {
                   </tr>
                 </thead>
                 <tbody className="num">
-                  {view.positions.map((position) => (
-                    <tr key={position.key} className="border-b border-line/50 last:border-0">
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <TokenAvatar
-                            src={positionLogos(position)}
-                            symbol={position.symbol}
-                            size={24}
-                          />
-                          <div className="min-w-0">
-                            {position.title && position.marketId ? (
-                              <Link
-                                prefetch={false}
-                                href={`/predictions/${encodeURIComponent(position.marketId)}`}
-                                className="line-clamp-2 max-w-72 font-sans font-semibold text-bone hover:text-bronze-200"
-                              >
-                                {position.title}
-                              </Link>
-                            ) : (
-                              <p className="font-sans font-semibold text-bone">{position.symbol}</p>
-                            )}
-                            <p className="flex items-center gap-2 font-sans text-[10px] text-slate-500">
-                              <span>
-                                {LABELS[position.assetClass] ?? position.assetClass} ·{" "}
-                                {position.outcome
-                                  ? position.outcome.toUpperCase()
-                                  : position.sector}
-                              </span>
-                              {view.mode === "live" && predictionCard(position) && (
-                                <PnlShareButton card={predictionCard(position) as PnlCardInput} />
+                  {view.positions.map((position) => {
+                    const card = positionPnlCard(position);
+                    return (
+                      <tr key={position.key} className="border-b border-line/50 last:border-0">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <TokenAvatar
+                              src={positionLogos(position)}
+                              symbol={position.symbol}
+                              size={24}
+                            />
+                            <div className="min-w-0">
+                              {position.title && position.marketId ? (
+                                <Link
+                                  prefetch={false}
+                                  href={`/predictions/${encodeURIComponent(position.marketId)}`}
+                                  className="line-clamp-2 max-w-72 font-sans font-semibold text-bone hover:text-bronze-200"
+                                >
+                                  {position.title}
+                                </Link>
+                              ) : (
+                                <p className="font-sans font-semibold text-bone">
+                                  {position.symbol}
+                                </p>
                               )}
-                            </p>
+                              <p className="flex items-center gap-2 font-sans text-[10px] text-slate-500">
+                                <span>
+                                  {LABELS[position.assetClass] ?? position.assetClass} ·{" "}
+                                  {position.outcome
+                                    ? position.outcome.toUpperCase()
+                                    : position.sector}
+                                </span>
+                                {card ? <PnlShareButton card={card} /> : null}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-[11px] text-slate-400">
-                        {position.book.startsWith("agent:") ? (
-                          <Link
-                            prefetch={false}
-                            href={`/agents/${encodeURIComponent(position.book.slice(6))}`}
-                            className="text-bronze-200 hover:underline"
-                          >
-                            Agent
-                          </Link>
-                        ) : position.book.startsWith("policy:") ? (
-                          "Policy"
-                        ) : (
-                          "Manual"
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-300">
-                        {Number(position.quantity).toFixed(6)}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-300">
-                        {usd(Number(position.averageCostUsd))}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-300" title={position.markSource}>
-                        {position.markStatus === "priced" ? (
-                          usd(Number(position.markPriceUsd))
-                        ) : (
-                          <span className="text-amber-200">unpriced</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-200">
-                        {usd(Number(position.marketValueUsd))}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-300">
-                        {position.weightPct == null ? "—" : `${position.weightPct.toFixed(1)}%`}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 ${Number(position.unrealizedPnlUsd) >= 0 ? "text-emerald-300" : "text-rose-300"}`}
-                      >
-                        {usd(Number(position.unrealizedPnlUsd))}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 ${Number(position.realizedPnlUsd) >= 0 ? "text-emerald-300" : "text-rose-300"}`}
-                      >
-                        {usd(Number(position.realizedPnlUsd))}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 ${(position.exitLiquidityPct ?? 0) > 5 ? "text-amber-200" : "text-slate-400"}`}
-                      >
-                        {position.exitLiquidityPct == null
-                          ? "—"
-                          : `${position.exitLiquidityPct.toFixed(2)}% of pool`}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] text-slate-400">
+                          {position.book.startsWith("agent:") ? (
+                            <Link
+                              prefetch={false}
+                              href={`/agents/${encodeURIComponent(position.book.slice(6))}`}
+                              className="text-bronze-200 hover:underline"
+                            >
+                              Agent
+                            </Link>
+                          ) : position.book.startsWith("policy:") ? (
+                            "Policy"
+                          ) : (
+                            "Manual"
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-300">
+                          {Number(position.quantity).toFixed(6)}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-300">
+                          {usd(Number(position.averageCostUsd))}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-300" title={position.markSource}>
+                          {position.markStatus === "priced" ? (
+                            usd(Number(position.markPriceUsd))
+                          ) : (
+                            <span className="text-amber-200">unpriced</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-200">
+                          {usd(Number(position.marketValueUsd))}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-300">
+                          {position.weightPct == null ? "—" : `${position.weightPct.toFixed(1)}%`}
+                        </td>
+                        <td
+                          className={`px-4 py-2.5 ${Number(position.unrealizedPnlUsd) >= 0 ? "text-emerald-300" : "text-rose-300"}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{usd(Number(position.unrealizedPnlUsd))}</span>
+                            {card ? (
+                              <PnlShareButton
+                                card={card}
+                                className="bg-ink-raised hover:bg-bronze-400/20"
+                              />
+                            ) : null}
+                          </div>
+                        </td>
+                        <td
+                          className={`px-4 py-2.5 ${Number(position.realizedPnlUsd) >= 0 ? "text-emerald-300" : "text-rose-300"}`}
+                        >
+                          {usd(Number(position.realizedPnlUsd))}
+                        </td>
+                        <td
+                          className={`px-4 py-2.5 ${(position.exitLiquidityPct ?? 0) > 5 ? "text-amber-200" : "text-slate-400"}`}
+                        >
+                          {position.exitLiquidityPct == null
+                            ? "—"
+                            : `${position.exitLiquidityPct.toFixed(2)}% of pool`}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {!view.positions.length && (

@@ -304,7 +304,7 @@ export default async function PredictionMarketPage({
 
         <aside className="space-y-4 self-start lg:sticky lg:top-4">
           {signedIn ? (
-            <PredictionTradeTicket marketId={market.id} />
+            <PredictionTradeTicket marketId={market.id} marketTitle={market.title} />
           ) : (
             <SignInToTrade
               label="this market"

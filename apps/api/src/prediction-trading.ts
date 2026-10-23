@@ -81,6 +81,10 @@ export class PredictionTradingService {
     const charged = await this.fees.apply(prepared.transaction, input.wallet, deposit);
     const id = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 90_000);
+    const depositUsd = Number(deposit) / 1e6;
+    const priceUsd = prepared.priceUsd;
+    const contracts = priceUsd > 0 ? depositUsd / priceUsd : 0;
+    const feeUsd = Number(charged.feeMicroUsdc) / 1e6;
     await savePredictionOrder(this.config.DATABASE_URL, {
       id,
       tenantId: input.tenantId,
@@ -92,6 +96,9 @@ export class PredictionTradingService {
       orderPubkey: prepared.order.orderPubkey,
       unsignedTransaction: charged.transaction,
       expiresAt,
+      priceUsd,
+      contracts,
+      feeUsd,
     });
     return {
       orderId: id,
@@ -177,6 +184,7 @@ export class PredictionTradingService {
       }
 
       // If signature was produced, the order has been broadcast to Solana validators.
+      let finalStatus: "submitted" | "confirmed" = "submitted";
       try {
         const confirmation = await Promise.race([
           this.connection.confirmTransaction(signature, "confirmed"),
@@ -188,6 +196,7 @@ export class PredictionTradingService {
           await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "failed", signature);
           return { status: "failed", signature, orderPubkey: String(order.orderPubkey) };
         }
+        finalStatus = "confirmed";
       } catch (confirmError) {
         console.warn(
           "[prediction-trading] confirmation timed out; order was broadcast:",
@@ -196,8 +205,8 @@ export class PredictionTradingService {
         );
       }
 
-      await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, "submitted", signature);
-      return { status: "submitted", signature, orderPubkey: String(order.orderPubkey) };
+      await finishPredictionOrder(this.config.DATABASE_URL, input.orderId, finalStatus, signature);
+      return { status: finalStatus, signature, orderPubkey: String(order.orderPubkey) };
     } catch (error) {
       if (error instanceof TradeRejection) throw error;
       console.error("[prediction-trading] execution error:", error);

@@ -896,11 +896,18 @@ export async function savePredictionOrder(
     orderPubkey: string;
     unsignedTransaction: string;
     expiresAt: Date;
+    priceUsd?: number | null;
+    contracts?: number | null;
+    feeUsd?: number | null;
   },
 ) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
   try {
-    await connection`INSERT INTO prediction_orders (id, tenant_id, subject, wallet, market_id, outcome, deposit_amount, order_pubkey, unsigned_transaction, status, expires_at) VALUES (${order.id}, ${order.tenantId}, ${order.subject}, ${order.wallet}, ${order.marketId}, ${order.outcome}, ${order.depositAmount}, ${order.orderPubkey}, ${order.unsignedTransaction}, 'prepared', ${order.expiresAt})`;
+    await connection`INSERT INTO prediction_orders (
+      id, tenant_id, subject, wallet, market_id, outcome, deposit_amount, order_pubkey, unsigned_transaction, status, expires_at, price_usd, contracts, fee_usd
+    ) VALUES (
+      ${order.id}, ${order.tenantId}, ${order.subject}, ${order.wallet}, ${order.marketId}, ${order.outcome}, ${order.depositAmount}, ${order.orderPubkey}, ${order.unsignedTransaction}, 'prepared', ${order.expiresAt}, ${order.priceUsd ?? null}, ${order.contracts ?? null}, ${order.feeUsd ?? null}
+    )`;
   } finally {
     await connection.end();
   }
@@ -920,7 +927,7 @@ export async function claimPredictionOrder(connectionString: string, id: string,
 export async function finishPredictionOrder(
   connectionString: string,
   id: string,
-  status: "submitted" | "failed" | "unknown",
+  status: "submitted" | "confirmed" | "failed" | "unknown",
   signature?: string,
 ) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
@@ -934,7 +941,7 @@ export async function finishPredictionOrder(
 export async function listPredictionOrders(connectionString: string, subject: string) {
   const connection = postgres(connectionString, { max: 2, connect_timeout: 10 });
   try {
-    return await connection`SELECT id, wallet, market_id AS "marketId", outcome, deposit_amount AS "depositAmount", order_pubkey AS "orderPubkey", status, signature, created_at AS "createdAt" FROM prediction_orders WHERE subject = ${subject} ORDER BY created_at DESC LIMIT 50`;
+    return await connection`SELECT id, wallet, market_id AS "marketId", outcome, deposit_amount AS "depositAmount", order_pubkey AS "orderPubkey", status, signature, price_usd AS "priceUsd", contracts, fee_usd AS "feeUsd", created_at AS "createdAt" FROM prediction_orders WHERE subject = ${subject} ORDER BY created_at DESC LIMIT 50`;
   } finally {
     await connection.end();
   }
